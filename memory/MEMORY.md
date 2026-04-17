@@ -1,0 +1,2 @@
+- [User profile](user_profile.md) — Thesis student building RT-IDS with PyTorch and CICIoT2023
+- [Dataset version mismatch](project_dataset_version.md) — Local data has 40 cols, plan assumes 47; needs resolution before implementation
