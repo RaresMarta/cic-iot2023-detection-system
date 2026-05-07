@@ -1,6 +1,23 @@
 .venv/
 data/
+memory/
 models/
 __pycache__/
 *.pyc
 .ipynb_checkpoints/
+
+# editor / agent state
+.claude/
+
+# LaTeX build artefacts
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.lof
+*.log
+*.lot
+*.out
+*.synctex.gz
+*.toc
