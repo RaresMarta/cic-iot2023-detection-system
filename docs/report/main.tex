@@ -1,0 +1,76 @@
+%\documentclass[12pt]{scrreprt}
+\documentclass[12pt]{report} 
+
+% language may be romanian or english (default is english)
+% type may be bachelor or master (default is bachelor)
+\usepackage[language=english, type=bachelor]{style}
+
+%\geometry{a4paper,top=2.5cm,left=3cm,right=2.5cm,bottom=2.5cm}
+%in style
+%controlling the appearance of your headers and footers
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{microtype}
+\usepackage{tikz}
+\usetikzlibrary{arrows, positioning, shapes.geometric}
+\usepackage{csquotes}
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+\setlength{\headheight}{14.5pt}
+\lhead{}
+\chead{}
+\renewcommand{\headrulewidth}{0.2pt}
+\renewcommand{\footrulewidth}{0.2pt}
+
+% Allow LaTeX more flexibility breaking long paragraphs to avoid overfull hboxes.
+\emergencystretch=2em
+
+\begin{document}
+
+\specialization{Artificial Intelligence}	
+\title{Real-Time Intrusion Detection for Web Applications Using Deep Learning}					   
+\author{Rares Marta}											
+\supervisor{Alexandra--Ioana Albu}				
+				
+\maketitle
+
+
+\newpage
+\thispagestyle{empty}
+\mbox{}
+\newpage
+\pagenumbering{roman} 
+
+\cleardoublepage
+ABSTRACT
+\vspace{0.5cm}	
+\hrule
+\vspace{0.5cm}	
+
+This thesis aims to design and implement a real-time intrusion detection system capable of analyzing web traffic and identifying malicious behavior using deep learning methods. The work is situated at the intersection of artificial intelligence and cybersecurity and focuses on building a practical system that can operate in a controlled web environment.
+
+The thesis will include a study of the relevant literature in intrusion detection, machine learning, and deep learning for cybersecurity, with particular attention to approaches designed for traffic classification and malicious behavior detection. It will also analyze the challenges involved in evaluating such systems, especially with respect to realism, model generalization, and real-time deployment constraints.
+
+The practical component of the thesis will consist of data processing, model training and evaluation, and the implementation of a demonstration environment in which traffic generated in a controlled web setting is monitored and classified in real time. The originality of the project is expected to come from combining deep learning-based intrusion detection with an interactive demonstration platform that highlights real-time monitoring and alert generation.
+
+\tableofcontents
+
+
+\newpage
+\pagenumbering{arabic}
+
+\input{chapters/chapter1_introduction}
+%\addcontentsline{toc}{chapter}{Introduction}
+
+\input{chapters/chapter2}
+\input{chapters/chapter3}
+\input{chapters/chapter4}
+\input{chapters/chapter5_results}
+
+\input{chapters/chapter6_conclusions}
+%\addcontentsline{toc}{chapter}{Conclusions}
+\nocite{*}
+\bibliographystyle{plain}
+\bibliography{references}
+
+\end{document}

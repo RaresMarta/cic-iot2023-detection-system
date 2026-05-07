@@ -1,0 +1,380 @@
+\chapter{Application Design, Implementation and Testing}
+\label{chap:design_implementation}
+
+\par This chapter covers the design and implementation of the application specified in Chapter~\ref{chap:requirements}, and the testing performed to verify that the core functionality \textbf{F1} (per-flow classification of submitted traffic) behaves as required. The chapter is organised top-down: it starts from the architectural breakdown, drills into each component's design, walks through the implementation choices that turn the design into running code, and finishes with the testing strategy and an executable user manual for F1.
+
+\section{Architectural Overview}
+\label{sec:architecture_overview}
+
+\par The system is split into a training subsystem (offline) and a serving subsystem (online), as introduced in Section~\ref{sec:system_specification}. The two are decoupled by a small, well-defined contract: a fixed number of serialised artefacts per trained model variant. This decoupling is deliberate. It lets the training side iterate freely (different splits, granularities, hyperparameters) without forcing changes to the serving code, and it lets the serving code stay tiny and observable.
+
+\subsection{Component Decomposition}
+\label{subsec:module_decomposition}
+
+\par Table~\ref{tab:components} lists the components of the application together with the responsibility of each. Two design intents drive the decomposition. First, every component has a single concern, so a fault is locatable by pointing at the responsibility table. Second, the boundary between components is the artefact contract, not a network protocol or in-process API: this means the training side can be re-run independently of any deployed serving instance, and conversely the serving side can be reloaded by simply pointing it at a different artefact directory.
+
+\begin{table}[htbp]
+\begin{center}
+\begin{tabular}{|p{105pt}|p{260pt}|}
+\hline
+\textbf{Component} & \textbf{Responsibility} \\
+\hline
+\hline
+Training pipeline & Ingestion, deduplication, per-class subsampling, splitting, scaler/encoder fitting, model training, evaluation, latency benchmarking, artefact persistence. \\
+\hline
+Inference component & Loads the scaler, encoder, and model weights for a given (split, granularity) variant; preprocesses incoming feature rows; runs the model; returns labelled predictions and confidences. \\
+\hline
+Capture-to-CSV bridge & Locates a CICFlowMeter backend, runs it as a subprocess against a packet capture, and returns the path of the produced feature CSV. \\
+\hline
+Web application & Discovers available model variants on disk; exposes the user interface; routes upload requests through the inference component; formats and returns verdicts. \\
+\hline
+Project specification & Project-level invariants (feature set, split strategies, classification granularities, modelling constraints) that bind every component above. \\
+\hline
+\end{tabular}
+\end{center}
+\caption{Components of the application and the responsibility of each.}
+\label{tab:components}
+\end{table}
+
+\subsection{Artefact Contract}
+\label{subsec:artefact_contract}
+
+\par The serving subsystem consumes exactly three artefacts per model variant. They are produced by the training pipeline and read back by the inference component:
+
+\begin{itemize}
+    \item the fitted feature scaler for the split (one scaler per split, shared across granularities, because the input feature space is identical regardless of label encoding);
+    \item the fitted label encoder for the (split, granularity) pair (one per granularity, because the label set changes);
+    \item the trained model weights for the (split, granularity) pair.
+\end{itemize}
+
+\par The artefact filenames encode both the split and the granularity in a uniform pattern. As a consequence, the web application can probe the artefact directory at startup, parse each filename, and instantiate one inference component per complete artefact triple it finds --- with no hard-coded list of variants. Exposing a newly trained variant in the user interface is therefore purely a question of dropping its three files into the artefact directory and restarting the application.
+
+\section{Data Pipeline Design}
+\label{sec:data_pipeline_design}
+
+\par The training data pipeline performs a sequence of deterministic transformations from the raw per-folder CSVs to the train/validation/test tensors that feed the model. Each transformation is a separate pipeline phase so that intermediate state is inspectable.
+
+\subsection{Ingestion and Deduplication}
+\label{subsec:ingestion}
+
+\par For each of the attack folders, the pipeline lazily scans every CSV, projects only the feature columns plus a synthetic column that carries the source-capture filename, and concatenates the resulting lazy frames. Materialisation happens only after the projection, so the multi-tens-of-millions-of-rows corpus is never held in memory in its raw width.
+
+\par CICIoT2023 contains a substantial fraction of exact duplicate rows --- a known property of the dataset and a recurring concern in the literature. Deduplication is applied immediately after concatenation, before any sampling. Deduplicating before sampling is essential: a folder where most rows are duplicated would otherwise have the same row repeated many times in the sample, which would inflate accuracy on the corresponding test rows.
+
+\subsection{Per-Class Subsampling}
+\label{subsec:subsampling}
+
+\par After deduplication, every folder whose deduplicated row count exceeds the per-class cap is randomly subsampled to that cap with a fixed seed. This brings the effective training-set size down from tens of millions of rows to a few million while keeping every attack class represented.
+
+\par The cap is set at the high end of the range used in the CICIoT2023 literature. Random sampling is preferred over taking the leading rows of each folder because each attack folder is a chronological concatenation of several capture sessions: the first $N$ rows come almost entirely from the first session, and a leading-rows sample would bias the model toward whatever happened in that opening session.
+
+\subsection{Caching}
+\label{subsec:caching}
+
+\par The deduplicated, subsampled, labelled rows are concatenated across folders and written to a single Zstandard-compressed columnar file. Subsequent runs skip ingestion and load from this cache directly. Regeneration is forced by deleting the cache file --- this is documented inline so future runs do not silently use a stale cache after sampling logic changes.
+
+\subsection{Cleaning}
+\label{subsec:cleaning}
+
+\par The cleaning phase performs three operations on the materialised frame. First, null-label rows are dropped (defensive only --- labels come from folder names, so this should be a no-op). Second, infinities are replaced with nulls; the actual median imputation is deferred to after the train/validation/test split so the medians are computed on the training partition only. Third, a $\log(1+x)$ transform is applied to the heavy-tailed continuous features (rates, total bytes, inter-arrival times). Binary protocol and flag indicators are excluded from the log transform.
+
+\subsection{Three Split Strategies}
+\label{subsec:split_strategies}
+
+\par Three splitting functions are defined and selected by configuration. Their design follows directly from the requirements in Section~\ref{subsec:pipeline_requirements}.
+
+\par \textbf{Random row split.} Two stratified splits in series produce 70/15/15 train/validation/test partitions, stratified by the fine-grained label so every class appears in every partition. This is reported only for parity with previously published numbers.
+
+\par \textbf{Per-capture split.} Two consecutive group-aware splits with the source-capture filename as the group identifier produce a 70/15/15 split where no source capture ever appears in more than one partition. This eliminates within-session redundancy leaking across the boundary, but preserves no temporal order.
+
+\par \textbf{Temporal split (headline).} For each attack folder, the source captures are sorted by filename and partitioned chronologically: the earliest 70\% become train, the next 15\% become validation, and the latest 15\% become test. Folders with fewer than three distinct source captures fall back to a row-level temporal split inside the folder. This mirrors deployment --- train on past, test on future --- and is the headline result reported in the thesis. The temporal F1 is expected to sit a few points below the random F1; that gap is the honest generalisation story.
+
+\subsection{Train-Only Preprocessing Fit}
+\label{subsec:train_fit_preprocess}
+
+\par For each split, column medians are computed on the training rows only, nulls in the train, validation, and test partitions are imputed using those medians, and the robust scaler is fitted on training rows alone before being applied to all three partitions. The contract that medians and the scaler are fitted strictly on training rows enforces NFR-3 (no test-set leakage) and is what makes the temporal-split metrics meaningful.
+
+\section{Model Architecture and Training}
+\label{sec:model_architecture}
+
+\subsection{MLP Topology}
+\label{subsec:mlp_topology}
+
+\par The model is a two-hidden-layer multi-layer perceptron with batch normalisation and dropout:
+
+\begin{equation*}
+    n_{\text{features}} \xrightarrow{\text{Linear}} 128 \xrightarrow{\text{BN, ReLU, Dropout}_{0.3}} 64 \xrightarrow{\text{BN, ReLU, Dropout}_{0.3}} n_{\text{classes}}
+\end{equation*}
+
+\par The architecture is intentionally small. Three considerations drive this choice. First, every empirical study of MLPs on tabular data has reported diminishing returns past two hidden layers when the input dimensionality is in the tens. Second, batch normalisation is required to stabilise training under large class-weight swings: at the fine-grained granularity, the heaviest class weight is more than fifty times the lightest, and gradients without batch normalisation would oscillate. Third, the 0.3 dropout rate is a deliberately conservative regularisation choice that empirically generalises better than the more common 0.5 on this dataset, where the cleaned training set is already several million rows.
+
+\subsection{Class-Weighted Cross-Entropy}
+\label{subsec:class_weighted_ce}
+
+\par Class weights are computed using the standard balanced-frequency rule applied to the encoded training labels, then passed to the cross-entropy loss. The justification is given in Section~\ref{subsec:pipeline_requirements}: SMOTE would generate synthetic flow vectors that have no operational meaning (a half-and-half SYN-flood / DNS-spoofing flow does not correspond to any real attack), and weighted batch sampling would be redundant with weighted cross-entropy.
+
+\subsection{Optimiser, Schedule, and Early Stopping}
+\label{subsec:training_loop}
+
+\par Training uses Adam with an initial learning rate of $10^{-3}$, paired with a learning-rate schedule that halves the rate after two consecutive epochs without validation-loss improvement. A separate early-stopping mechanism with a patience of five epochs caps total training. The batch size is 4096, large enough to amortise the batch-normalisation overhead and small enough to keep the per-step gradient meaningful.
+
+\par The training loop tracks training loss, validation loss, and the current learning rate per epoch, restoring the best validation-loss state at the end. The best state is what is serialised; the final-epoch state is discarded.
+
+\section{Inference Component Design}
+\label{sec:inference_layer}
+
+\par The inference component is the single seam between trained artefacts and live requests. Its constructor takes the artefact directory, the split name, and the granularity, and loads the matching triple. Its prediction method takes a frame of feature rows and returns the predicted labels, the per-prediction confidences, the full softmax probabilities, and the class-name list in the encoder's index order.
+
+\subsection{Preprocessing Mirror}
+\label{subsec:preprocessing_mirror}
+
+\par The trickiest part of the inference component is matching the training-time preprocessing exactly. Three rules are enforced inside its preprocessing path, each justified by a corresponding training-time decision:
+
+\begin{enumerate}
+    \item The expected feature columns are validated and reordered, so that column ordering does not silently shift between the trained scaler and the live data.
+    \item Infinities are replaced with nulls, then the $\log(1+x)$ transform is applied to the continuous features only. The flag and protocol indicators are kept binary.
+    \item Residual nulls are filled with zeros after the transform. This is a defensive fill: at training time, median imputation handled nulls, but the trained scaler operates in the transformed space, so a residual null in a live request is filled with a constant rather than a re-derived median.
+\end{enumerate}
+
+\par The transformed array is then passed through the scaler's transform method --- never a re-fit. The scaler is treated as immutable at inference time.
+
+\subsection{Confidence and Label Decoding}
+\label{subsec:confidence_decoding}
+
+\par The model emits logits; a softmax along the class dimension produces per-class probabilities; the argmax selects the predicted class index; the encoder's inverse transform maps the index back to the human-readable label. The maximum softmax probability is reported as confidence. Confidence here is not a calibrated probability; it is reported because end users (committee, presenter) intuitively expect a number alongside each verdict, and the maximum softmax is the cheapest reasonable proxy.
+
+\section{Capture-to-CSV Bridge Design}
+\label{sec:cicflowmeter_design}
+
+\par The bridge component exists for one reason: the training data was derived from an established flow extractor, and the project must not reimplement flow extraction in Python on pain of subtle numerical drift between live and training distributions. The component wraps two backends and returns the path of the produced feature CSV.
+
+\subsection{Backend Discovery}
+\label{subsec:backend_discovery}
+
+\par The original Java CICFlowMeter is preferred. It is detected via an environment variable that points at a built CICFlowMeter installation, and is invoked through the launcher script appropriate to the host platform (one variant for Linux/macOS, one for Windows). If the Java backend is not present, the bridge falls back to a community Python port located through the executable search path. If neither backend is available, an error is raised carrying a configuration message that names both options. The two backends differ in output filename convention; the bridge renames the produced file to a single canonical form so that downstream code does not need to branch on backend.
+
+\subsection{Subprocess Hygiene}
+\label{subsec:subprocess_hygiene}
+
+\par Both backends are launched with their standard output and standard error captured. A non-zero exit from either backend is translated into a domain-level error carrying the captured standard error. This is what surfaces in the user interface under FR-D4: the user sees the underlying tool's diagnostic message, not a Python traceback.
+
+\section{Web Application Design}
+\label{sec:webapp_design}
+
+\par The user interface is a thin orchestration layer over the components above. Three design choices are worth calling out.
+
+\subsection{Filesystem-Driven Variant Discovery}
+\label{subsec:filesystem_discovery}
+
+\par At startup, the application probes the artefact directory for trained model variants. For each filename matching the artefact-naming convention, it parses the encoded split and granularity, attempts to load the corresponding triple, and silently skips incomplete triples. If no triples can be loaded, the application fails fast with a message pointing the user back at the training pipeline. The result is a dictionary keyed by a human-readable display string that becomes the contents of the variant dropdown.
+
+\subsection{Two Symmetric Upload Paths}
+\label{subsec:two_tabs}
+
+\par The interface exposes two tabs: one for pre-extracted CSV uploads and one for raw packet captures. They share the same dropdown, the same predictor pool, and the same output schema (summary line plus verdict table); they differ only in the input handler. The CSV tab delegates straight to the inference component; the packet-capture tab creates a temporary directory, calls the bridge to produce a CSV, and feeds that CSV through the same classification path used by the CSV tab. This shared post-extraction code path means the verdict display behaves identically regardless of how the CSV was obtained, which simplifies both the user mental model and the testing surface.
+
+\subsection{Localhost Binding by Default}
+\label{subsec:localhost_default}
+
+\par The application binds to all local interfaces by default and is reached in a browser at the localhost URL. Public exposure is delegated to a separate command-line tunnelling tool, started in another terminal when needed. This separation is intentional: tunnelling is a presentation-time decision and should not be coupled to the application's lifecycle.
+
+\section{Implementation Notes}
+\label{sec:implementation_details}
+
+\par The previous sections covered \emph{why} each component looks the way it does. This section walks through the implementation choices made along the way.
+
+\subsection{Memory and I/O Discipline}
+\label{subsec:memory_io}
+
+\par The pipeline is built around three rules that together respect the 16~GB memory budget (NFR-4):
+
+\begin{itemize}
+    \item Lazy frames are used everywhere ingestion touches raw CSVs. Materialisation is deferred until after column projection.
+    \item The deduplicated and subsampled frame is the only materialised object on the data side. Once it has been converted to numpy arrays for the split-and-train path, the frame's memory is reclaimed before the training tensors are allocated.
+    \item The cached intermediate is the only persistent caching boundary. There is no in-memory caching that survives across pipeline restarts.
+\end{itemize}
+
+\subsection{Determinism}
+\label{subsec:determinism}
+
+\par A single deterministic seed is broadcast to every random source: the numerical library, the deep-learning framework on CPU and on GPU, the framework's deterministic backend flags, and the dataset samplers. Both random-row split calls receive the same seed; both group-aware split steps receive the same seed; the temporal split is deterministic by construction. As a result, re-running the pipeline against the same source files produces metrics that match within a few thousandths of an F1 point --- the tolerance committed in NFR-3.
+
+\subsection{Logging and Observability}
+\label{subsec:logging}
+
+\par The pipeline prints concise progress lines at every phase: per-folder ingestion counts (raw $\to$ deduplicated $\to$ sampled), per-split row counts, missing-class warnings, per-epoch training and validation loss, and final per-class metrics. Plots --- training curves and row-normalised confusion matrices --- are rendered inline. The web application prints only its bind address on startup and any error message that surfaces during a request.
+
+\subsection{Configuration Surface}
+\label{subsec:configuration}
+
+\par The pipeline exposes its configuration through a small block of named constants near the top of the notebook: the per-class row cap, the active split strategies, the active classification granularities, the batch size, the maximum number of epochs, the early-stopping patience, the learning rate, and the deterministic seed. These are the only knobs intended to be tuned. An iteration mode (one split, one granularity) and a full thesis-run mode (three splits, three granularities) are documented at the configuration block so iteration cost is predictable.
+
+\subsection{Dependency Footprint}
+\label{subsec:dependencies}
+
+\par The runtime dependencies are confined to the standard scientific-Python stack (a lazy columnar engine, a deep-learning framework, a tabular machine-learning library, plotting libraries) plus a lightweight web-UI framework and a gradient-boosted-trees implementation for the tree baselines. There is no machine-learning serving framework: the demo loads the model directly into the application process. There is no packaging beyond a flat directory; a single command launches the demo, satisfying NFR-7.
+
+\section{Testing Strategy}
+\label{sec:testing_strategy}
+
+\par The application is tested at three levels: shape-and-determinism sanity checks inside the training pipeline; integration smoke tests over each (split, granularity) artefact triple; and the F1 functional acceptance test, which is the executable demonstration required by the assignment.
+
+\subsection{Pipeline-Level Sanity Checks}
+\label{subsec:notebook_sanity}
+
+\par The training pipeline contains assertions and printed sanity checks at every transition. The most important ones are:
+
+\begin{itemize}
+    \item An assertion that the fine-grained label mapping covers every attack folder exactly once --- guards against a missing or duplicated entry.
+    \item An assertion during ingestion that no folder is unmapped --- guards against a new attack folder being silently dropped.
+    \item For each split, a check that every fine-grained label appears at least once in the train partition; missing classes are flagged with a warning line.
+    \item Per-folder row counts (raw / deduplicated / sampled) are printed during ingestion --- a sudden mismatch between raw and deduplicated counts is a quick visual cue that something has changed in the source data.
+\end{itemize}
+
+\subsection{Artefact Round-Trip Test}
+\label{subsec:roundtrip_test}
+
+\par For every (split, granularity) pair, after training, the pipeline reloads the freshly written artefacts using the exact code path the demo uses and predicts on the test partition. The reloaded predictions are compared against the in-memory predictions of the still-loaded model. The two must agree exactly. This test caught two real bugs during development: a column-ordering drift between training and inference, and a silent dtype mismatch when arrays were converted to tensors without an explicit precision cast.
+
+\subsection{Latency Benchmark}
+\label{subsec:latency_benchmark}
+
+\par For each trained model, the benchmark loop runs $10{,}000$ inference passes per batch size in $\{1, 32, 256, 1024\}$ on CPU after a warmup of one hundred passes, with the timer wrapped around the feature scaling step \emph{and} the model forward pass. The pipeline reports the p50, p95, and p99 of the per-batch latency in milliseconds and the implied flows-per-second throughput. NFR-1 (sub-100~ms p95 end-to-end on a consumer laptop CPU at any of those batch sizes) is the acceptance criterion.
+
+\subsection{F1 Functional Test --- Capture to Verdict}
+\label{subsec:f1_functional_test}
+
+\par F1 is verified end-to-end with two test inputs whose ground-truth labels are known, so the test is binary pass/fail rather than dependent on subjective inspection. Each test consists of running the demo, uploading the input, and reading the predicted-label distribution.
+
+\begin{itemize}
+    \item \textbf{Benign baseline.} A short capture of normal browsing traffic produced on the demo machine. Acceptance criterion: at the binary granularity, at least 95\% of flows are predicted as Benign.
+    \item \textbf{Synthetic flood.} A capture of a SYN-flood attack directed at a local target, generated using a standard packet-crafting tool. Acceptance criteria: at the binary granularity, at least 95\% of flows are predicted as Attack; at the attack-family granularity, the dominant predicted family is DDoS.
+\end{itemize}
+
+\par These thresholds are deliberately set well below the test-set numbers (which are typically 0.97+ in the binary case) so the test tolerates the inevitable distribution shift between the training data and the live demo machine, while still failing loudly if the model has been deployed against a wrong scaler or a wrong encoder.
+
+\subsection{Negative-Path Testing}
+\label{subsec:negative_path_testing}
+
+\par Three negative scenarios are exercised manually. They rely on the public component surface, so they can be reproduced from a brief interactive session:
+
+\begin{itemize}
+    \item Uploading a CSV missing one or more of the expected feature columns. Expected: a domain-level error naming the missing columns; the user interface surfaces this as the summary message and produces an empty table. Verifies FR-D4.
+    \item Uploading a non-capture file (e.g.\ a text file renamed to a capture extension). Expected: a flow-extraction error carrying the underlying tool's stderr; the user interface surfaces this as the summary message. Verifies FR-D4.
+    \item Running the demo with no artefacts on disk. Expected: a fast exit with a message pointing the user back to the training pipeline. Verifies graceful behaviour when discovery yields nothing (FR-D2).
+\end{itemize}
+
+\section{F1 User Manual}
+\label{sec:f1_user_manual}
+
+\par This section is the executable mini user manual for F1, suitable for inclusion in the thesis defense package. It assumes the artefacts have already been trained (see UC-1 in Section~\ref{subsec:uc_train}) and that the working directory is the project root.
+
+\subsection{Step 1 --- Install Dependencies}
+\label{subsec:f1_install}
+
+\par Activate the project's virtual environment and install the runtime dependencies:
+
+\begin{verbatim}
+python -m venv .venv
+.venv\Scripts\activate           # Windows
+source .venv/bin/activate        # Linux/macOS
+pip install -r requirements.txt
+\end{verbatim}
+
+\subsection{Step 2 --- Provide a CICFlowMeter Backend}
+\label{subsec:f1_cicflowmeter}
+
+\par For packet-capture input, one of two backends must be reachable. Either set the environment variable that points at a built CICFlowMeter installation:
+
+\begin{verbatim}
+$env:CICFLOWMETER_HOME = "C:\path\to\CICFlowMeter"   # PowerShell
+\end{verbatim}
+
+\par or install the Python community port:
+
+\begin{verbatim}
+pip install cicflowmeter
+\end{verbatim}
+
+\par CSV-only operation (UC-3) does not require either backend.
+
+\subsection{Step 3 --- Launch the Demo}
+\label{subsec:f1_launch}
+
+\par Run the application as a module from the project root:
+
+\begin{verbatim}
+python -m demo.app
+\end{verbatim}
+
+\par The application prints its bind address. The interface is reached in a browser at \url{http://localhost:7860}. (The all-interfaces bind address shown in the terminal is not a connection address and using it directly in the browser fails on Windows.)
+
+\subsection{Step 4 --- Choose a Model Variant}
+\label{subsec:f1_choose_variant}
+
+\par The dropdown labelled \enquote{Model (split / granularity)} lists every artefact triple discovered on disk. The default selection is the first variant returned by the discovery probe; for the thesis demonstration the recommended variant is the temporal split at the binary granularity, which is the headline combination defended in the methodology.
+
+\subsection{Step 5 --- Submit a Capture}
+\label{subsec:f1_submit_capture}
+
+\par Two upload paths are exposed:
+
+\begin{itemize}
+    \item \textbf{CSV upload.} Switch to the CSV upload tab. Click the file picker, select a CIC-format CSV, then click the Classify button. The summary line and verdict table appear within a second on a typical laptop.
+    \item \textbf{Packet-capture upload.} Switch to the packet-capture upload tab. Select a \texttt{.pcap} or \texttt{.pcapng} file. Click the Extract-and-Classify button. The capture is processed by the flow-extraction tool (typically a few seconds for short captures); the verdict table appears immediately afterwards.
+\end{itemize}
+
+\subsection{Step 6 --- Read the Output}
+\label{subsec:f1_read_output}
+
+\par Two artefacts are returned for every classification request:
+
+\begin{itemize}
+    \item A \textbf{summary} string of the form \enquote{$N$ flows classified --- LabelA: $n_A$ | LabelB: $n_B$ | $\dots$}, sorted by descending count.
+    \item A \textbf{verdict table} with three columns: row index in the input, predicted label, and the maximum-softmax confidence formatted with four decimal digits.
+\end{itemize}
+
+\subsection{Step 7 --- (Optional) Expose the Demo Publicly}
+\label{subsec:f1_tunnel}
+
+\par For a remote audience, open a second terminal alongside the running demo and start an HTTPS tunnel pointed at the local demo URL:
+
+\begin{verbatim}
+cloudflared tunnel --url http://localhost:7860
+\end{verbatim}
+
+\par The tunnelling service prints a temporary HTTPS URL. Sharing this URL gives a remote viewer access to the demo. Stopping the tunnelling tool revokes the URL.
+
+\subsection{Step 8 --- Capture Screenshots for the Defense Package}
+\label{subsec:f1_screenshots}
+
+\par For the assignment deliverable, record the executable evidence of F1 by capturing three screenshots:
+
+\begin{enumerate}
+    \item The demo launching in the terminal (showing the bind address it prints).
+    \item The user interface immediately after a benign capture has been classified --- the summary line should read primarily Benign.
+    \item The user interface immediately after a synthetic-flood capture has been classified --- the summary line should read primarily Attack at the binary granularity, or primarily DDoS at the attack-family granularity.
+\end{enumerate}
+
+\par Figures~\ref{fig:f1_terminal}--\ref{fig:f1_attack} show the layout placeholders for these three screenshots; the actual images are produced during the live demonstration and inserted into the defense package.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.85\textwidth]{figures/f1_terminal.png}
+    \caption{Demo launch in the terminal --- the application boots, discovers the trained model artefacts, and binds the user-interface URL.}
+    \label{fig:f1_terminal}
+\end{figure}
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.85\textwidth]{figures/f1_benign.png}
+    \caption{F1 acceptance --- benign capture classified. The summary line and verdict table report Benign as the dominant predicted label, satisfying the no-false-alarm half of the F1 acceptance criterion (Section~\ref{subsec:f1_functional_test}).}
+    \label{fig:f1_benign}
+\end{figure}
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.85\textwidth]{figures/f1_attack.png}
+    \caption{F1 acceptance --- synthetic SYN-flood capture classified. The summary line and verdict table report Attack as the dominant predicted label, satisfying the discrimination half of the F1 acceptance criterion (Section~\ref{subsec:f1_functional_test}).}
+    \label{fig:f1_attack}
+\end{figure}

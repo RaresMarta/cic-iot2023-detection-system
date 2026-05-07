@@ -1,0 +1,307 @@
+\chapter{Application Requirements and Specification}
+\label{chap:requirements}
+
+\par This chapter defines the application that constitutes the practical contribution of the thesis. The overall objective is twofold: to deliver a defensible, reproducible deep-learning pipeline trained on the CICIoT2023 dataset, and to expose the resulting model through a live demonstration in which the user can submit captured network traffic and observe per-flow intrusion-detection verdicts. The chapter starts from this objective, identifies the actors and use cases, lists the functional and non-functional requirements that shape the design, and concludes with the system-level specification that constrains the implementation in Chapter~\ref{chap:design_implementation}.
+
+\section{Project Goal and Scope}
+\label{sec:project_goal}
+
+\par The deliverable is a real-time intrusion detection system (RT-IDS) for IoT networks built on top of CICIoT2023, structured as two cooperating subsystems:
+
+\begin{itemize}
+    \item \textbf{Training subsystem.} A reproducible offline pipeline that ingests the raw CICIoT2023 captures, performs deduplication and per-class subsampling, builds three different train/validation/test splits, trains a deep neural model at three classification granularities (binary, attack-family, and full multi-class), evaluates the model with the metrics expected by the IDS literature, and serialises the small set of artefacts needed for inference.
+    \item \textbf{Serving subsystem.} A web application that loads the serialised artefacts, accepts either a pre-extracted feature CSV in CIC format or a raw packet capture (in which case a flow-extraction tool is invoked to derive the feature representation), runs the trained model, and presents per-flow verdicts and an aggregated summary in the browser.
+\end{itemize}
+
+\par The system is targeted at an interactive, single-request setting: the user supplies a sample of traffic, the system classifies it, and the verdict is reviewed on screen. \textbf{Line-rate gateway protection} (sub-millisecond per-packet inference at multi-gigabit throughput) is explicitly out of scope. This narrower framing of \enquote{real time} is restated in the requirements below, because it directly determines which non-functional thresholds are reasonable to enforce.
+
+\par Three classification granularities are required, not optional, because the comparison between them is part of the thesis contribution and matches the way most CICIoT2023 papers report results:
+
+\begin{itemize}
+    \item \textbf{2-class}: Benign versus Attack. This is the gate that an inline production deployment would actually use.
+    \item \textbf{8-class}: Benign plus the seven attack families (DDoS, DoS, Mirai, Reconnaissance, Spoofing, Web, BruteForce). This is the operational view a Security Operations Centre (SOC) analyst would consume.
+    \item \textbf{34-class}: One label per specific attack variant. This is the forensic view used in published comparisons.
+\end{itemize}
+
+\par The same train/validation/test rows must be reused across all three granularities (only the label-mapping changes), so the comparison between granularities is not contaminated by sampling differences.
+
+\section{Stakeholders and Actors}
+\label{sec:actors}
+
+\par The system has a small, well-defined set of human actors. Each actor's interactions with the system constrain the user-interface design.
+
+\begin{table}[htbp]
+\begin{center}
+\begin{tabular}{|p{90pt}|p{90pt}|p{170pt}|}
+\hline
+\textbf{Actor} & \textbf{Role} & \textbf{Primary interaction} \\
+\hline
+\hline Researcher / thesis author & Trains and evaluates models, regenerates artefacts. & Runs the training pipeline end-to-end, iterates on splits and granularities, inspects metrics and confusion matrices. \\
+\hline Demo presenter & Presents the live demonstration during the thesis defense. & Launches the web application, selects a model variant, uploads a captured packet trace, narrates the verdicts. \\
+\hline Defense audience & Observes the demonstration. & Reads the verdict table and summary in the browser; may request that a different model variant be selected. \\
+\hline Thesis committee reviewer & Verifies that the system behaves as claimed. & Reproduces a single classification run from a supplied capture and compares the output to the expected label. \\
+\hline
+\end{tabular}
+\end{center}
+\caption{Actors involved in the system and their primary interactions.}
+\label{tab:actors}
+\end{table}
+
+\par The application has no concept of long-lived user sessions, accounts, or persistent storage of submitted captures. All actors interact with the system over a single short-lived session, typically lasting the duration of the demonstration.
+
+\section{Functional Requirements}
+\label{sec:functional_requirements}
+
+\par The functional requirements describe \emph{what} the system must do. They are split into pipeline-side requirements (the offline training subsystem) and demo-side requirements (the web application). The first demo requirement, \textbf{F1}, is the core executable functionality whose end-to-end operation must be demonstrated for the assignment.
+
+\subsection{Pipeline Requirements}
+\label{subsec:pipeline_requirements}
+
+\begin{itemize}
+    \item \textbf{FR-P1 --- Reproducible ingestion.} The pipeline shall ingest the raw per-folder CICIoT2023 CSVs, attach the folder name as the fine-grained class label, drop exact duplicate rows (the dataset contains a substantial fraction of duplicate records), and produce a single compact, columnar intermediate file. Re-running ingestion with the same seed and the same source files shall produce a byte-identical intermediate.
+    \item \textbf{FR-P2 --- Per-class subsampling.} For each fine-grained label, the pipeline shall randomly subsample at most a configurable per-class cap of rows, using a fixed random seed. Sampling shall be uniform across each class, not the leading rows; the leading rows of each attack folder come from a single capture session and would bias the model toward that session's idiosyncrasies.
+    \item \textbf{FR-P3 --- Three split variants.} The pipeline shall generate three train/validation/test splits over the same per-class subsampled rows: \textbf{temporal} (sort the source captures per attack folder, take the earliest 70\% as train, the next 15\% as validation, and the latest 15\% as test); \textbf{per-capture} (no source capture appears in more than one partition, so within-session redundancy cannot leak across the split); \textbf{random row} (the conventional stratified row split, retained for parity with previously published numbers).
+    \item \textbf{FR-P4 --- Three classification granularities.} For each split, the pipeline shall train and evaluate one model per granularity (binary, attack-family, fine-grained). The same train/validation/test row indices shall be reused across the three granularities; only the label encoding differs.
+    \item \textbf{FR-P5 --- Imbalance handling.} The pipeline shall combat the severe class imbalance via class-weighted cross-entropy loss, with weights computed from the training-set class frequencies. Synthetic minority oversampling shall not be used (synthetic flow records have no operational meaning), and weighted batch sampling shall not be used (it would be redundant with weighted cross-entropy).
+    \item \textbf{FR-P6 --- Tree-based baselines.} The pipeline shall additionally train a Random Forest and a gradient-boosted tree classifier on the same splits and report the same metrics, so that the deep model can be compared against strong tabular baselines.
+    \item \textbf{FR-P7 --- Standard evaluation suite.} For each (split, granularity) pair the pipeline shall report accuracy, macro-F1, weighted-F1, macro-precision, macro-recall, the per-class precision/recall/F1 report, and the row-normalised confusion matrix.
+    \item \textbf{FR-P8 --- Latency benchmark.} For each trained model the pipeline shall measure single-flow inference latency at batch sizes [1, 32, 256, 1024] over at least 10{,}000 warm runs, reporting the p50, p95, and p99 percentiles end-to-end (i.e.\ including feature scaling, not only the network forward pass). Mean-only latency reporting is forbidden.
+    \item \textbf{FR-P9 --- Artefact serialisation.} For each (split, granularity) pair the pipeline shall persist three artefacts: the fitted feature scaler, the fitted label encoder, and the trained model weights. The serialisation format shall allow the serving subsystem to reload the artefacts without re-running training, and the naming convention shall be uniform across model variants so that new variants can be added without code changes (see Section~\ref{subsec:high_level_architecture}).
+\end{itemize}
+
+\subsection{Demo Requirements}
+\label{subsec:demo_requirements}
+
+\begin{itemize}
+    \item \textbf{F1 --- Per-flow classification of submitted traffic.} \emph{This is the executable functionality required by the Lab~4 assignment.} The demo shall accept either (a) a CSV file already in the CIC feature format, or (b) a raw packet capture, and shall return a per-flow classification table together with an aggregated summary. For packet-capture input, the established CIC flow-extraction tool shall be invoked as a subprocess to derive the feature representation; the demo shall not reimplement flow extraction in Python, because doing so would risk subtle numerical drift between live and training distributions.
+    \item \textbf{FR-D2 --- Model-variant selection.} The demo shall present a dropdown listing every (split, granularity) pair for which trained artefacts exist on disk. The user shall be able to switch model variant without restarting the application; subsequent classifications shall use the newly selected variant.
+    \item \textbf{FR-D3 --- Deterministic output schema.} For every classification request, the demo shall return: (i) a one-line summary with the total number of flows classified and a breakdown by predicted label, sorted by descending count; (ii) a table where each row contains the row index in the input, the predicted label, and the classifier's confidence (the maximum softmax probability), formatted with four decimal digits.
+    \item \textbf{FR-D4 --- Self-validating input.} The demo shall verify that every uploaded CSV contains the expected feature columns and shall return a human-readable error message naming the missing columns if it does not. Flow-extraction failures on packet captures shall surface the underlying tool's error message rather than crashing the request.
+    \item \textbf{FR-D5 --- No persistent storage of user input.} Submitted captures and CSVs shall be processed in a temporary location and removed when the request ends. The application shall not log captured payloads to disk.
+    \item \textbf{FR-D6 --- Optional public exposure.} The application shall be runnable in two modes: (a) bound to localhost for an in-room defense demonstration; (b) exposed publicly via a tunnelling service on demand. The web application itself shall not embed a tunnelling client; tunnelling is delegated to a separate command-line tool launched by the presenter.
+\end{itemize}
+
+\section{Non-Functional Requirements}
+\label{sec:non_functional_requirements}
+
+\par The non-functional requirements describe \emph{how well} the system must perform.
+
+\begin{itemize}
+    \item \textbf{NFR-1 --- Latency target.} End-to-end per-flow inference latency through the demo, including CSV parsing, feature scaling, the model forward pass, and result formatting, shall be below 100~ms at p95 on a consumer laptop CPU for batches of up to 1024 flows. Packet-capture parsing time is excluded from this budget because the flow-extraction tool dominates that path; capture-to-verdict latency is reported separately.
+    \item \textbf{NFR-2 --- Headline classification performance.} The temporal-split model at the 8-class granularity shall achieve at least 0.85 weighted-F1 on the held-out test set. The temporal headline number is expected to be 2--10 percentage points lower than the random-split number; that gap is treated as the honest generalisation story, not a defect.
+    \item \textbf{NFR-3 --- Reproducibility.} Every random source --- numerical libraries, deep-learning framework on CPU and on GPU, and dataset samplers --- shall be seeded from a single deterministic seed. Re-running the pipeline shall produce identical splits, identical class weights, and metrics within a tolerance of $\pm 0.001$ F1.
+    \item \textbf{NFR-4 --- Memory budget.} The pipeline shall fit within 16~GB of system RAM at every stage. This rules out keeping the full multi-tens-of-millions-of-rows CSV materialised in memory and forces the use of lazy, columnar processing with on-disk intermediates.
+    \item \textbf{NFR-5 --- Hardware portability.} The pipeline shall run on CPU-only hardware. GPU acceleration shall be used opportunistically when available, but shall never be a hard dependency.
+    \item \textbf{NFR-6 --- Cross-platform demo.} The demo application shall run on both Windows and Linux, with the only platform-specific concern being the path of the flow-extraction tool's launcher script.
+    \item \textbf{NFR-7 --- Operational simplicity.} Launching the demo shall require a single command. No additional services (databases, message queues, dedicated model servers) shall be required.
+    \item \textbf{NFR-8 --- Honest reporting.} Numerical results in the thesis shall not cherry-pick the favourable random split; the temporal split shall be the headline result. Per-class metrics shall always be reported alongside aggregate metrics, so that majority-class dominance cannot mask poor minority-class performance.
+\end{itemize}
+
+\section{Use Cases}
+\label{sec:use_cases}
+
+\par The use cases below describe the principal interactions with the system. Each use case is given a short identifier, the actor that initiates it, the precondition that must hold, the main flow of events, and the postcondition that holds when the use case completes successfully. Alternative flows describe the most important error paths.
+
+\subsection{UC-1: Train and Persist a Model Variant}
+\label{subsec:uc_train}
+
+\textbf{Actor:} Researcher.\\
+\textbf{Precondition:} The raw CICIoT2023 captures are available in the dataset directory; the runtime environment satisfies the project's dependency manifest.\\
+\textbf{Main flow:}
+\begin{enumerate}
+    \item The researcher opens the training pipeline and configures which split strategies and which granularities to run.
+    \item The pipeline ingests, deduplicates, and subsamples the data; it caches the result on first run so subsequent runs skip ingestion.
+    \item For each requested (split, granularity) pair, the pipeline fits the scaler on the train set only, encodes labels, computes class weights, trains the model with early stopping, and evaluates on the test set.
+    \item The fitted scaler, label encoder, and trained model weights are written to the artefact directory under a uniform naming convention.
+    \item Aggregate and per-class metrics are printed; the row-normalised confusion matrix is rendered.
+\end{enumerate}
+\textbf{Postcondition:} The artefact directory contains a complete artefact triple for every requested (split, granularity) pair, ready to be loaded by the serving subsystem.\\
+\textbf{Alternative flow:} If a previously cached intermediate is present, ingestion is skipped and the pipeline proceeds directly to splitting.
+
+\subsection{UC-2: Classify a Captured Packet Trace via the Web Demo (F1)}
+\label{subsec:uc_classify_pcap}
+
+\textbf{Actor:} Demo presenter.\\
+\textbf{Precondition:} At least one artefact triple is present in the artefact directory; a CICFlowMeter backend is reachable; the web application is running and accessible in a browser.\\
+\textbf{Main flow:}
+\begin{enumerate}
+    \item The presenter opens the demo URL and selects a model variant from the dropdown.
+    \item The presenter switches to the packet-capture upload tab and uploads a capture produced by the attack-script step.
+    \item The application copies the capture into a temporary location, invokes the flow-extraction tool as a subprocess, and obtains a feature CSV.
+    \item The application loads the CSV, applies the scaler fitted on the training set, runs the model forward pass, applies softmax, and inverse-transforms the predicted indices to label strings.
+    \item The application renders the summary line and the per-flow verdict table in the browser.
+\end{enumerate}
+\textbf{Postcondition:} The temporary location is removed; the verdict table is visible; no traffic data is persisted on disk.\\
+\textbf{Alternative flow A:} If the flow-extraction tool exits non-zero, the application returns an error message containing the captured stderr and an empty table.\\
+\textbf{Alternative flow B:} If no flow-extraction backend is available, the application returns a configuration message explaining how to provide one and an empty table.
+
+\subsection{UC-3: Classify a Pre-Extracted CSV via the Web Demo}
+\label{subsec:uc_classify_csv}
+
+\textbf{Actor:} Demo presenter or thesis-committee reviewer.\\
+\textbf{Precondition:} At least one artefact triple is present in the artefact directory; the web application is running.\\
+\textbf{Main flow:}
+\begin{enumerate}
+    \item The actor opens the demo URL and selects a model variant.
+    \item The actor switches to the CSV upload tab and uploads a CSV in the CIC feature format.
+    \item The application validates the column set, applies the scaler, runs the model, and renders the verdict table.
+\end{enumerate}
+\textbf{Postcondition:} The verdict table is visible; the uploaded CSV is removed when the request completes.\\
+\textbf{Alternative flow:} If required CIC columns are missing, the application returns a single human-readable error message naming the missing columns and an empty table.
+
+\subsection{UC-4: Switch Model Variant Mid-Session}
+\label{subsec:uc_switch_variant}
+
+\textbf{Actor:} Demo presenter.\\
+\textbf{Precondition:} The web application is running and at least two artefact triples have been discovered at startup.\\
+\textbf{Main flow:}
+\begin{enumerate}
+    \item After running a classification, the presenter selects a different (split, granularity) pair from the dropdown.
+    \item The presenter triggers classification again on the same uploaded file.
+    \item The application routes the request through the predictor corresponding to the new dropdown value and renders the new verdicts.
+\end{enumerate}
+\textbf{Postcondition:} The verdict table reflects the newly selected model variant; no application restart was required.
+
+\subsection{UC-5: Expose the Demo via a Public Tunnel}
+\label{subsec:uc_tunnel}
+
+\textbf{Actor:} Demo presenter.\\
+\textbf{Precondition:} The demo is running locally; a tunnelling client is installed.\\
+\textbf{Main flow:}
+\begin{enumerate}
+    \item The presenter opens a second terminal and starts a tunnel that points at the local demo URL.
+    \item The tunnelling service prints a temporary public HTTPS URL.
+    \item Remote viewers reach the demo through that URL; the request flow is otherwise identical to UC-2 / UC-3.
+\end{enumerate}
+\textbf{Postcondition:} The demo is reachable from outside the local network; tearing the tunnel down revokes the URL.
+
+\section{System Specification}
+\label{sec:system_specification}
+
+\par The system specification translates the requirements above into the high-level architecture, the technology choices, and the interfaces that govern how components cooperate. The detailed design and implementation are presented in Chapter~\ref{chap:design_implementation}; this section fixes the contract.
+
+\subsection{High-Level Architecture}
+\label{subsec:high_level_architecture}
+
+\par The system consists of two pipelines that meet at a small set of serialised artefacts. The training pipeline runs offline and produces those artefacts. The serving pipeline is the live demo, which loads them and answers classification requests. Figure~\ref{fig:system_architecture} shows the data flow.
+
+\begin{figure}[htbp]
+    \centering
+    \resizebox{\textwidth}{!}{%
+    \begin{tikzpicture}[
+        node distance=0.6cm and 0.8cm,
+        layer/.style={
+            rectangle,
+            rounded corners=4pt,
+            draw=black!70,
+            thick,
+            minimum width=2.6cm,
+            minimum height=1.0cm,
+            text width=2.5cm,
+            align=center,
+            font=\small
+        },
+        train/.style={layer, fill=blue!8},
+        artefact/.style={layer, fill=yellow!18, minimum width=2.4cm},
+        serve/.style={layer, fill=green!10},
+        arrow/.style={
+            ->,
+            >=latex,
+            thick,
+            black!60
+        }
+    ]
+    % Training pipeline (top row)
+    \node[train] (raw)        {Raw CIC\\captures};
+    \node[train, right=of raw]        (parquet)   {Cleaned\\columnar\\intermediate};
+    \node[train, right=of parquet]    (split)     {Splits\\(temporal /\\per-capture /\\random)};
+    \node[train, right=of split]      (train)     {Model\\training};
+
+    % Artefact layer (middle)
+    \node[artefact, below=of train, yshift=-0.2cm] (scaler)  {Fitted\\scaler};
+    \node[artefact, left=of scaler]                (encoder) {Fitted\\encoder};
+    \node[artefact, left=of encoder]               (weights) {Trained\\weights};
+
+    % Serving pipeline (bottom row)
+    \node[serve, below=of weights, yshift=-0.2cm]  (pcap)    {Capture /\\CSV upload};
+    \node[serve, right=of pcap]                    (cic)     {Flow\\extractor};
+    \node[serve, right=of cic]                     (predict) {Inference\\component};
+    \node[serve, right=of predict]                 (gradio)  {Web UI};
+
+    % Arrows: training row
+    \draw[arrow] (raw) -- (parquet);
+    \draw[arrow] (parquet) -- (split);
+    \draw[arrow] (split) -- (train);
+
+    % Train -> artefacts
+    \draw[arrow] (train.south) -- (scaler.north);
+    \draw[arrow] (train.south) -- (encoder.north);
+    \draw[arrow] (train.south) -- (weights.north);
+
+    % Artefacts -> predictor
+    \draw[arrow] (scaler.south) -- (predict.north);
+    \draw[arrow] (encoder.south) -- (predict.north);
+    \draw[arrow] (weights.south) -- (predict.north);
+
+    % Serving row
+    \draw[arrow] (pcap) -- (cic);
+    \draw[arrow] (cic) -- (predict);
+    \draw[arrow] (predict) -- (gradio);
+
+    \end{tikzpicture}%
+    }
+    \caption{High-level architecture of the RT-IDS application. The training pipeline (blue) produces three serialised artefacts (yellow), which the serving pipeline (green) loads to answer per-flow classification requests.}
+    \label{fig:system_architecture}
+\end{figure}
+
+\subsection{Technology Stack and Rationale}
+\label{subsec:tech_stack}
+
+\par The technology choices are driven by the requirements above. Table~\ref{tab:tech_stack} lists each concern, the selected technology, and the reason it was chosen over the obvious alternatives.
+
+\begin{table}[htbp]
+\begin{center}
+\begin{tabular}{|p{75pt}|p{85pt}|p{195pt}|}
+\hline
+\textbf{Concern} & \textbf{Choice} & \textbf{Rationale} \\
+\hline
+\hline
+Tabular data wrangling & Lazy columnar engine, compressed columnar intermediates & Lazy scanning lets the multi-tens-of-millions-of-rows CSV corpus be deduplicated and subsampled without ever materialising it in memory; columnar storage with strong compression cuts disk usage and reload time. \\
+\hline
+Feature scaling & Robust scaler (median / IQR) & CIC features have heavy-tailed distributions (rate, IAT, total bytes); scaling by median and IQR is more stable than zero-mean / unit-variance scaling under such tails. \\
+\hline
+Label encoding & Integer label encoder & Compact and reversible; the inverse transform is needed at inference time to display human-readable labels. \\
+\hline
+Imbalance handling & Class-weighted cross-entropy & SMOTE rejected (synthetic flow records have no operational meaning); weighted batch sampling rejected (redundant with weighted cross-entropy). \\
+\hline
+Deep model & Two-hidden-layer MLP with batch normalisation and dropout & MLPs are the natural fit for fixed-length tabular inputs, train fast on CPU, and serve as the strong baseline expected by the IDS literature. \\
+\hline
+Tree baselines & Random Forest, gradient-boosted trees & Required to demonstrate that the deep model is not strictly worse than a tree, which is the first question committees ask about tabular tasks. \\
+\hline
+Capture $\to$ flow CSV & CICFlowMeter (the CIC team's reference tool) & Reimplementing flow aggregation in Python would risk subtle numerical drift between the live-demo features and the training distribution. \\
+\hline
+Demo UI & Lightweight Python web-UI framework with file upload, dropdowns, and dataframe widgets & Lowest-friction route to a thesis-defence demo; no JavaScript required. \\
+\hline
+Public exposure & Stateless HTTPS tunnelling client & No router configuration required; the URL expires when the presenter closes the tunnel. \\
+\hline
+Reproducibility & Single deterministic seed propagated to every random source & Required by NFR-3. \\
+\hline
+\end{tabular}
+\end{center}
+\caption{Technology stack of the RT-IDS application and rationale for each choice.}
+\label{tab:tech_stack}
+\end{table}
+
+\subsection{Constraints and Assumptions}
+\label{subsec:constraints}
+
+\par The following constraints and assumptions bound the work and are acknowledged in the methodology section of the thesis.
+
+\begin{itemize}
+    \item \textbf{Dataset version.} The 39-feature public CSV release of CICIoT2023 is the only source of training data. The 46-feature variant used by some published comparisons was not available from the official UNB CIC distribution at the time of writing; it is mirrored on third-party platforms but its provenance and preprocessing differ from the official release. Numerical results are therefore not directly comparable across the two feature sets, and that gap is treated as a methodological scope decision rather than a defect.
+    \item \textbf{Smart-home scope.} CICIoT2023 was captured in a smart-home testbed with 105 IoT devices. Generalisation to industrial control systems, medical IoT, or vehicular networks is not claimed.
+    \item \textbf{No encrypted-payload features.} The dataset features are derived from headers and metadata only. Detection accuracy on heavily encrypted traffic where attack signal is concentrated in the payload is expected to be limited; web-family attacks (SQL injection, XSS, command injection) will be detected weakly because they are application-layer and the feature set is transport-layer. This is a property of the feature set, not a model defect, and is discussed openly in the results chapter.
+    \item \textbf{Single-machine deployment.} The demo runs on the presenter's laptop. Distributed serving, redundancy, and high-availability are out of scope.
+    \item \textbf{Trusted local audience.} The demo does not authenticate users. The expected audience is the thesis committee in a controlled room, optionally extended via an on-demand HTTPS tunnel for a known remote reviewer. Hardening the demo for hostile public exposure is out of scope.
+    \item \textbf{No online learning.} The deployed model is the one trained offline by the pipeline. The demo does not adapt to feedback during the session.
+\end{itemize}

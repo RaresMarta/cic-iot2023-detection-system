@@ -1,0 +1,18 @@
+\chapter{Introduction}
+\label{chap:introduction}
+
+\par Intrusion Detection Systems (IDS) are a core defensive layer in modern networks, monitoring traffic to detect malicious behaviors such as denial-of-service attacks, reconnaissance scans, brute-force attempts, and data exfiltration. As the number of connected devices continues to grow --- particularly in the Internet of Things (IoT) --- the volume and diversity of network traffic have increased dramatically, exposing the limitations of traditional signature-based approaches that rely on manually maintained rule sets.
+
+\par Deep learning offers a promising alternative by learning complex, non-linear representations directly from network traffic data, enabling models to detect both known and previously unseen attack patterns. However, a gap remains between the strong benchmark results reported in the research literature and the practical deployment of such models in real-time environments.
+
+\par This thesis addresses that gap by designing, implementing, and evaluating a deep learning-based intrusion detection system capable of operating in real time. The work focuses on the CICIoT2023 dataset, a large-scale IoT intrusion detection benchmark containing over 46 million labeled network flow records across 33 attack types. A Multi-Layer Perceptron (MLP) is developed as the primary supervised classifier, evaluated against tree-based baselines (Random Forest, XGBoost) on the same train/validation/test splits to verify that the deep model is the best choice for this tabular task. Beyond offline evaluation, the thesis includes a demonstration environment in which scripted attacks are launched against a controlled web application, and the trained model classifies the resulting traffic flows in near real time.
+
+\par The remainder of this thesis is organized as follows:
+
+\begin{itemize}
+    \item \textbf{Chapter 2} presents the theoretical background, covering intrusion detection systems, deep learning for traffic classification, and the CICIoT2023 dataset.
+    \item \textbf{Chapter 3} states the application requirements and specification, defining the problem to be solved, the actors involved, and the functional and non-functional constraints the system must satisfy.
+    \item \textbf{Chapter 4} describes the design, implementation, and testing of the application, including the data pipeline, model architecture, training procedure, the live-demo environment, and the verification of the core functionality.
+    \item \textbf{Chapter 5} reports experimental results and discusses the findings.
+    \item \textbf{Chapter 6} concludes the thesis and outlines directions for future work.
+\end{itemize}
