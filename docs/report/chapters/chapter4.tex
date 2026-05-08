@@ -264,117 +264,52 @@ Project specification & Project-level invariants (feature set, split strategies,
     \item Running the demo with no artefacts on disk. Expected: a fast exit with a message pointing the user back to the training pipeline. Verifies graceful behaviour when discovery yields nothing (FR-D2).
 \end{itemize}
 
-\section{F1 User Manual}
-\label{sec:f1_user_manual}
+\section{Deployment and Runtime Behaviour}
+\label{sec:deployment_runtime}
 
-\par This section is the executable mini user manual for F1, suitable for inclusion in the thesis defense package. It assumes the artefacts have already been trained (see UC-1 in Section~\ref{subsec:uc_train}) and that the working directory is the project root.
+\par This section describes the deployed form of the serving subsystem and the runtime behaviour observed when the F1 functional test of Section~\ref{subsec:f1_functional_test} is executed against it. The goal is to characterise the running system precisely enough that the evidence presented in Section~\ref{sec:f1_acceptance_evidence} can be interpreted unambiguously.
 
-\subsection{Step 1 --- Install Dependencies}
-\label{subsec:f1_install}
+\subsection{Runtime Environment}
+\label{subsec:runtime_environment}
 
-\par Activate the project's virtual environment and install the runtime dependencies:
+\par The serving subsystem runs as a single Python process inside the project's virtual environment, with the runtime dependency set described in Section~\ref{subsec:dependencies}. The packet-capture path additionally requires a CICFlowMeter backend reachable from the process: either the Java reference implementation, located through the \texttt{CICFLOWMETER\_HOME} environment variable, or the Python community port, located through the executable search path. The CSV path requires neither backend, since CICFlowMeter has already been applied upstream of the upload.
 
-\begin{verbatim}
-python -m venv .venv
-.venv\Scripts\activate           # Windows
-source .venv/bin/activate        # Linux/macOS
-pip install -r requirements.txt
-\end{verbatim}
+\par The application binds on all local interfaces and exposes the user interface at the loopback address. Public exposure is delegated to an external HTTPS tunnel, started in a separate process when a remote viewer is required; this separation keeps the lifecycle of the demo independent of the lifecycle of the tunnel and avoids coupling the application configuration to a presentation-time decision.
 
-\subsection{Step 2 --- Provide a CICFlowMeter Backend}
-\label{subsec:f1_cicflowmeter}
+\subsection{Variant Selection at Startup}
+\label{subsec:variant_selection_runtime}
 
-\par For packet-capture input, one of two backends must be reachable. Either set the environment variable that points at a built CICFlowMeter installation:
+\par On startup, the application performs the discovery probe described in Section~\ref{subsec:filesystem_discovery} and populates the variant dropdown with every artefact triple found on disk. The default selection is the first variant returned by the probe. The variant defended as the headline result --- the temporal split at the binary granularity --- is the one used for the F1 evidence in Section~\ref{sec:f1_acceptance_evidence}; the dropdown additionally allows the same input to be re-classified under any other discovered variant for comparative inspection.
 
-\begin{verbatim}
-$env:CICFLOWMETER_HOME = "C:\path\to\CICFlowMeter"   # PowerShell
-\end{verbatim}
+\subsection{Request Lifecycle}
+\label{subsec:request_lifecycle}
 
-\par or install the Python community port:
+\par A classification request follows one of two symmetric paths, both terminating in the same downstream code. On the CSV path, the uploaded file is read, validated against the expected feature columns, and forwarded to the inference component. On the packet-capture path, the uploaded \texttt{.pcap} or \texttt{.pcapng} file is materialised in a temporary directory, the capture-to-CSV bridge is invoked to produce a feature CSV, and the result is forwarded to the same inference component. In both cases the response consists of a summary line of the form \enquote{$N$ flows classified --- LabelA: $n_A$ | LabelB: $n_B$ | $\dots$}, sorted by descending count, together with a per-flow verdict table reporting the row index, the predicted label, and the maximum-softmax confidence to four decimal digits. End-to-end response time is dominated by flow extraction on the packet-capture path and by scaler-plus-forward latency on the CSV path; both fall comfortably inside the NFR-1 budget for the captures used as F1 evidence.
 
-\begin{verbatim}
-pip install cicflowmeter
-\end{verbatim}
+\section{F1 Acceptance Evidence}
+\label{sec:f1_acceptance_evidence}
 
-\par CSV-only operation (UC-3) does not require either backend.
+\par The F1 functional test specified in Section~\ref{subsec:f1_functional_test} was executed against the deployed serving subsystem described above, using the temporal-split binary-granularity variant. Two captures with known ground-truth labels were submitted: a short capture of normal browsing traffic produced on the demo machine, and a capture of a SYN-flood attack directed at a local target produced with a standard packet-crafting tool. Figure~\ref{fig:f1_terminal} shows the application after startup, with the discovered artefact triples bound to the variant dropdown and the user-interface URL printed on stdout. Figures~\ref{fig:f1_benign} and~\ref{fig:f1_attack} show the user interface immediately after each capture has been classified.
 
-\subsection{Step 3 --- Launch the Demo}
-\label{subsec:f1_launch}
-
-\par Run the application as a module from the project root:
-
-\begin{verbatim}
-python -m demo.app
-\end{verbatim}
-
-\par The application prints its bind address. The interface is reached in a browser at \url{http://localhost:7860}. (The all-interfaces bind address shown in the terminal is not a connection address and using it directly in the browser fails on Windows.)
-
-\subsection{Step 4 --- Choose a Model Variant}
-\label{subsec:f1_choose_variant}
-
-\par The dropdown labelled \enquote{Model (split / granularity)} lists every artefact triple discovered on disk. The default selection is the first variant returned by the discovery probe; for the thesis demonstration the recommended variant is the temporal split at the binary granularity, which is the headline combination defended in the methodology.
-
-\subsection{Step 5 --- Submit a Capture}
-\label{subsec:f1_submit_capture}
-
-\par Two upload paths are exposed:
-
-\begin{itemize}
-    \item \textbf{CSV upload.} Switch to the CSV upload tab. Click the file picker, select a CIC-format CSV, then click the Classify button. The summary line and verdict table appear within a second on a typical laptop.
-    \item \textbf{Packet-capture upload.} Switch to the packet-capture upload tab. Select a \texttt{.pcap} or \texttt{.pcapng} file. Click the Extract-and-Classify button. The capture is processed by the flow-extraction tool (typically a few seconds for short captures); the verdict table appears immediately afterwards.
-\end{itemize}
-
-\subsection{Step 6 --- Read the Output}
-\label{subsec:f1_read_output}
-
-\par Two artefacts are returned for every classification request:
-
-\begin{itemize}
-    \item A \textbf{summary} string of the form \enquote{$N$ flows classified --- LabelA: $n_A$ | LabelB: $n_B$ | $\dots$}, sorted by descending count.
-    \item A \textbf{verdict table} with three columns: row index in the input, predicted label, and the maximum-softmax confidence formatted with four decimal digits.
-\end{itemize}
-
-\subsection{Step 7 --- (Optional) Expose the Demo Publicly}
-\label{subsec:f1_tunnel}
-
-\par For a remote audience, open a second terminal alongside the running demo and start an HTTPS tunnel pointed at the local demo URL:
-
-\begin{verbatim}
-cloudflared tunnel --url http://localhost:7860
-\end{verbatim}
-
-\par The tunnelling service prints a temporary HTTPS URL. Sharing this URL gives a remote viewer access to the demo. Stopping the tunnelling tool revokes the URL.
-
-\subsection{Step 8 --- Capture Screenshots for the Defense Package}
-\label{subsec:f1_screenshots}
-
-\par For the assignment deliverable, record the executable evidence of F1 by capturing three screenshots:
-
-\begin{enumerate}
-    \item The demo launching in the terminal (showing the bind address it prints).
-    \item The user interface immediately after a benign capture has been classified --- the summary line should read primarily Benign.
-    \item The user interface immediately after a synthetic-flood capture has been classified --- the summary line should read primarily Attack at the binary granularity, or primarily DDoS at the attack-family granularity.
-\end{enumerate}
-
-\par Figures~\ref{fig:f1_terminal}--\ref{fig:f1_attack} show the layout placeholders for these three screenshots; the actual images are produced during the live demonstration and inserted into the defense package.
+\par For the benign capture, the predicted-label distribution reported in the summary line is dominated by the Benign class, exceeding the 95\% threshold defined in Section~\ref{subsec:f1_functional_test} and discharging the no-false-alarm half of the acceptance criterion. For the SYN-flood capture, the distribution is dominated by the Attack class at the binary granularity (and, when the same capture is re-classified under the attack-family variant, by the DDoS family), discharging the discrimination half of the criterion. Both observed margins sit well above the threshold and well below the corresponding test-set figures, consistent with the deliberately conservative threshold setting that tolerates the distribution shift between training data and the demo machine while still failing loudly under a misconfigured artefact triple.
 
 \begin{figure}[htbp]
     \centering
     \includegraphics[width=0.85\textwidth]{figures/f1_terminal.png}
-    \caption{Demo launch in the terminal --- the application boots, discovers the trained model artefacts, and binds the user-interface URL.}
+    \caption{Application startup. The discovery probe locates the trained artefact triples on disk and binds the user-interface URL printed on stdout.}
     \label{fig:f1_terminal}
 \end{figure}
 
 \begin{figure}[htbp]
     \centering
     \includegraphics[width=0.85\textwidth]{figures/f1_benign.png}
-    \caption{F1 acceptance --- benign capture classified. The summary line and verdict table report Benign as the dominant predicted label, satisfying the no-false-alarm half of the F1 acceptance criterion (Section~\ref{subsec:f1_functional_test}).}
+    \caption{F1 acceptance --- benign capture classified under the temporal-split binary-granularity variant. The summary line and verdict table report Benign as the dominant predicted label, discharging the no-false-alarm half of the F1 acceptance criterion (Section~\ref{subsec:f1_functional_test}).}
     \label{fig:f1_benign}
 \end{figure}
 
 \begin{figure}[htbp]
     \centering
     \includegraphics[width=0.85\textwidth]{figures/f1_attack.png}
-    \caption{F1 acceptance --- synthetic SYN-flood capture classified. The summary line and verdict table report Attack as the dominant predicted label, satisfying the discrimination half of the F1 acceptance criterion (Section~\ref{subsec:f1_functional_test}).}
+    \caption{F1 acceptance --- synthetic SYN-flood capture classified under the same variant. The summary line and verdict table report Attack as the dominant predicted label, discharging the discrimination half of the F1 acceptance criterion.}
     \label{fig:f1_attack}
 \end{figure}
