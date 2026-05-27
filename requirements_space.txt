@@ -10,3 +10,5 @@ gradio
 uvicorn[standard]
 fastapi
 python-multipart
+cicflowmeter
+pandas
