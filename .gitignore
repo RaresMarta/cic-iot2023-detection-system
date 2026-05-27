@@ -2,15 +2,12 @@
 .claude/
 data/
 memory/
+wandb/
+
 __pycache__/
 *.pyc
 .ipynb_checkpoints/
 
-# editor / agent state
-.claude/
-
-# WandB run artifacts
-wandb/
 
 # LaTeX build artefacts
 *.aux
