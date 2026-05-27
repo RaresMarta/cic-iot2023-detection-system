@@ -1,0 +1,12 @@
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.5.1+cpu
+polars
+pyarrow
+numpy
+scikit-learn
+joblib
+xgboost
+gradio
+uvicorn[standard]
+fastapi
+python-multipart

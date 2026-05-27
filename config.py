@@ -24,7 +24,7 @@ X_COLUMNS = [
     'Tot size', 'IAT', 'Number', 'Variance',
 ]
 Y_COLUMN = 'Label'
-N_FEATURES = len(X_COLUMNS)
+N_FEATURES = len(X_COLUMNS)  # updated after feature selection in notebook
 
 FLAG_COLUMNS = [
     'fin_flag_number', 'syn_flag_number', 'rst_flag_number',
@@ -36,7 +36,7 @@ FLAG_COLUMNS = [
 LOG_COLUMNS = [c for c in X_COLUMNS if c not in FLAG_COLUMNS]
 
 # Tasks & splits
-MODES_TO_RUN = ['2']
+MODES_TO_RUN = ['2', '8']
 SPLITS_TO_RUN = ['temporal']
 
 # Training

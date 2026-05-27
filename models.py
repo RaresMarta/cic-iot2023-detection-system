@@ -14,6 +14,12 @@ device = torch.device(
     else ('mps' if torch.backends.mps.is_available() else 'cpu')
 )
 
+_ACTIVATIONS = {
+    'relu':      nn.ReLU,
+    'elu':       nn.ELU,
+    'leakyrelu': nn.LeakyReLU,
+}
+
 
 class IDSDataset(Dataset):
     """PyTorch Dataset wrapper for (X, y) arrays."""
@@ -30,21 +36,23 @@ class IDSDataset(Dataset):
 
 
 class IDSModel(nn.Module):
-    """2-layer MLP with BatchNorm and Dropout."""
+    """Variable-depth MLP with BatchNorm and Dropout per layer."""
 
-    def __init__(self, n_features: int, n_classes: int):
+    def __init__(self, n_features: int, n_classes: int,
+                 hidden_sizes: list = None,
+                 dropout: float = 0.3,
+                 activation: str = 'relu'):
         super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(n_features, 128),
-            nn.BatchNorm1d(128),
-            nn.ReLU(),
-            nn.Dropout(0.3),
-            nn.Linear(128, 64),
-            nn.BatchNorm1d(64),
-            nn.ReLU(),
-            nn.Dropout(0.3),
-            nn.Linear(64, n_classes),
-        )
+        if hidden_sizes is None:
+            hidden_sizes = [128, 64]
+        Act = _ACTIVATIONS[activation]
+        layers = []
+        in_size = n_features
+        for h in hidden_sizes:
+            layers += [nn.Linear(in_size, h), nn.BatchNorm1d(h), Act(), nn.Dropout(dropout)]
+            in_size = h
+        layers.append(nn.Linear(in_size, n_classes))
+        self.net = nn.Sequential(*layers)
 
     def forward(self, x):
         return self.net(x)
@@ -52,17 +60,27 @@ class IDSModel(nn.Module):
 
 def train_model(model: nn.Module, train_loader, val_loader,
                 class_weights: torch.Tensor, n_epochs: int, patience: int,
-                lr: float, device: torch.device, checkpoint_path=None):
+                lr: float, device: torch.device, checkpoint_path=None,
+                optimizer_name: str = 'adam', run=None, trial=None):
     """Train with class-weighted CE, ReduceLROnPlateau, early stopping on val loss.
 
+    Args:
+        optimizer_name: 'adam' or 'adamw'
+        trial: optional Optuna trial for pruning
     Returns:
         (trained_model, history_dict)
     """
     criterion = nn.CrossEntropyLoss(weight=class_weights.to(device))
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+
+    opt_cls = torch.optim.AdamW if optimizer_name == 'adamw' else torch.optim.Adam
+    optimizer = opt_cls(model.parameters(), lr=lr)
+
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, mode='min', factor=0.5, patience=2,
     )
+    use_amp = device.type == 'cuda'
+    scaler = torch.amp.GradScaler('cuda', enabled=use_amp)
+
     best_val_loss = float('inf')
     best_state = None
     patience_counter = 0
@@ -74,9 +92,11 @@ def train_model(model: nn.Module, train_loader, val_loader,
         for Xb, yb in train_loader:
             Xb, yb = Xb.to(device, non_blocking=True), yb.to(device, non_blocking=True)
             optimizer.zero_grad()
-            loss = criterion(model(Xb), yb)
-            loss.backward()
-            optimizer.step()
+            with torch.amp.autocast('cuda', enabled=use_amp):
+                loss = criterion(model(Xb), yb)
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
             running += loss.item() * Xb.size(0)
         train_loss = running / len(train_loader.dataset)
 
@@ -85,7 +105,8 @@ def train_model(model: nn.Module, train_loader, val_loader,
         with torch.no_grad():
             for Xb, yb in val_loader:
                 Xb, yb = Xb.to(device, non_blocking=True), yb.to(device, non_blocking=True)
-                loss = criterion(model(Xb), yb)
+                with torch.amp.autocast('cuda', enabled=use_amp):
+                    loss = criterion(model(Xb), yb)
                 running += loss.item() * Xb.size(0)
         val_loss = running / len(val_loader.dataset)
 
@@ -95,6 +116,8 @@ def train_model(model: nn.Module, train_loader, val_loader,
         history['val_loss'].append(val_loss)
         history['lr'].append(current_lr)
         print(f'  Epoch {epoch+1:02d} — train: {train_loss:.4f} — val: {val_loss:.4f} — lr: {current_lr:.2e}')
+        if run is not None:
+            run.log({'train_loss': train_loss, 'val_loss': val_loss, 'lr': current_lr}, step=epoch + 1)
 
         if val_loss < best_val_loss:
             best_val_loss = val_loss
@@ -107,6 +130,12 @@ def train_model(model: nn.Module, train_loader, val_loader,
             if patience_counter >= patience:
                 print(f'  Early stop @ epoch {epoch+1}')
                 break
+
+        # Optuna pruning — kill unpromising trials early
+        if trial is not None:
+            trial.report(val_loss, epoch)
+            if trial.should_prune():
+                raise __import__('optuna').exceptions.TrialPruned()
 
     model.load_state_dict(best_state)
     return model, history

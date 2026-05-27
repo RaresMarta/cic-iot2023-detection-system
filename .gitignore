@@ -2,7 +2,6 @@
 .claude/
 data/
 memory/
-models/
 __pycache__/
 *.pyc
 .ipynb_checkpoints/
