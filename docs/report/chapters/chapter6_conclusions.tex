@@ -1,4 +1,64 @@
 \chapter{Conclusions and Future Work}
 \label{chap:conclusions}
 
-\par This chapter will summarize the findings of the thesis and outline directions for future work. (To be completed in a subsequent assignment.)
+\section{Summary of Contributions}
+\label{sec:contributions}
+
+\par This thesis designed, implemented, and evaluated a real-time intrusion detection system for IoT networks built on the CICIoT2023 dataset. The work delivered two cooperating subsystems --- a reproducible offline training pipeline and an interactive web demonstration --- and produced the following concrete artefacts:
+
+\begin{itemize}
+    \item A \textbf{data pipeline} that ingests 46.7 million raw CICIoT2023 records, removes the 53.7\% duplicate fraction, applies per-class subsampling at a 200{,}000-row cap, and writes a compressed columnar cache for fast subsequent runs. The pipeline is fully deterministic: the same seed and source files reproduce byte-identical splits.
+    \item A \textbf{feature analysis} that characterises the 39 publicly available CICIoT2023 features through variance analysis and inter-feature correlations, pruning 14 near-zero-variance binary indicators and identifying two perfectly collinear continuous pairs.
+    \item A \textbf{two-hidden-layer MLP classifier} trained at binary and 8-class attack-family granularities on the temporal split, achieving a test weighted F1 of approximately 0.901 on the 8-class task --- exceeding the NFR-2 target of 0.85.
+    \item A \textbf{tree-based baseline comparison} (Random Forest and XGBoost) that reveals the MLP lags the ensemble models by approximately 3 percentage points on test accuracy and weighted F1 but remains operationally competitive, confirming that the deep model is not strictly worse than strong tabular baselines on this dataset.
+    \item A \textbf{web demonstration} (NEURAL IDS) comprising a Gradio/FastAPI backend and a React dashboard that accepts pre-extracted CSVs or raw packet captures, classifies flows in under 10 ms, and displays confidence scores, per-class probability breakdowns, and a timestamped analysis history. The system is deployed on Hugging Face Spaces for remote access.
+\end{itemize}
+
+\section{Key Findings}
+\label{sec:key_findings}
+
+\par The main experimental findings are:
+
+\begin{itemize}
+    \item \textbf{Temporal split reveals realistic generalisation.} The temporal split --- where test captures are chronologically later than training captures --- serves as the honest evaluation criterion. All three models generalise well (train-to-test accuracy drop below 7 percentage points), indicating that CICIoT2023 sessions are reasonably stationary within each attack folder. The temporal weighted F1 ($\approx$0.901 for MLP) falls within the 2--10 percentage point gap below what random-split experiments typically report, consistent with the expectations set in NFR-2.
+
+    \item \textbf{Mirai is trivially detectable; volumetric floods are confused.} The Mirai botnet family achieves near-perfect recall (0.99) on the temporal test set thanks to its highly distinctive high-rate, fixed-payload traffic pattern. DDoS and DoS families are frequently confused with each other (up to 36\% cross-confusion), which is expected given that both are volumetric floods distinguished primarily by the number of coordinated source hosts --- a distinction that the fixed-window packet-feature representation does not capture reliably.
+
+    \item \textbf{Application-layer attacks are the hardest classes.} Spoofing (0.43 recall), Reconnaissance (0.47), and BruteForce (0.52) are the weakest classes, with a large fraction of Spoofing flows classified as Benign. This is not a model failure: it reflects the fundamental limitation of a transport-layer feature set in the presence of application-layer attacks whose distinguishing characteristics lie in the payload. Web-family attacks (SQL injection, XSS, command injection) achieve 0.61 recall for the same reason.
+
+    \item \textbf{Tree ensembles outperform MLP on tabular data.} XGBoost and Random Forest both outperform the MLP by approximately 3 percentage points on test accuracy and weighted F1. This is consistent with the tabular machine learning literature, where gradient-boosted trees typically outperform MLPs at sample sizes in the low millions when the features are heterogeneous and non-spatial. The MLP is retained as the primary serving model because of its inference simplicity (a single portable PyTorch call) and because the gap is small enough to leave the system within its performance targets.
+\end{itemize}
+
+\section{Limitations}
+\label{sec:limitations}
+
+\par Several limitations bound the scope of the conclusions:
+
+\begin{itemize}
+    \item \textbf{Transport-layer features only.} The 25 retained features are derived from packet headers and metadata. Application-layer content (HTTP bodies, DNS query strings, TLS certificate fields) is not represented. This fundamentally caps detection accuracy for application-layer attack categories and means the results cannot be generalised to environments where attack signal is concentrated in the payload.
+    \item \textbf{Controlled laboratory environment.} The CICIoT2023 captures come from a controlled testbed with 105 real IoT devices. The attacker-victim topology, the absence of background noise from non-testbed infrastructure, and the isolated execution of individual attack types do not reflect multi-stage campaigns, lateral movement, or the traffic diversity of a production network.
+    \item \textbf{Single split strategy for headline results.} While three split strategies were designed (temporal, per-capture, random), the thesis reports results only for the temporal split as the headline. The per-capture split, which eliminates within-session redundancy across partition boundaries, may provide a complementary perspective on generalisation that is not captured by the temporal split alone.
+    \item \textbf{39-feature public CSV variant.} The seven features omitted from the publicly available CSV release (source rate, destination rate, URG count, Magnitude, Radius, Covariance, Weight) may carry additional discriminative information, particularly for the weaker attack families. Numerical results reported here are therefore not directly comparable to studies that used the full 46-feature variant.
+    \item \textbf{MLP calibration.} The maximum softmax probability is used as a confidence proxy but is not a calibrated probability. Softmax outputs are known to be overconfident on out-of-distribution inputs \cite{Guo2017}. Deploying this confidence as an operational risk score without calibration may lead to systematic overestimation of certainty on novel traffic.
+\end{itemize}
+
+\section{Future Work}
+\label{sec:future_work}
+
+\par The findings and limitations above suggest several directions for future work:
+
+\begin{itemize}
+    \item \textbf{Per-capture split results.} Completing the evaluation on the per-capture split would provide a cleaner measure of within-session redundancy and a more direct test of cross-session generalisation. Comparing temporal and per-capture results would clarify how much of the temporal split's honest generalisation story is attributable to temporal ordering versus session-level diversity.
+
+    \item \textbf{Full 46-feature variant.} When the complete feature set becomes available from a verified source, rerunning the pipeline with the seven additional features would allow a direct comparison with published baselines and may improve detection of the weaker attack families.
+
+    \item \textbf{Calibration and threshold tuning.} Applying temperature scaling or Platt scaling to the MLP's softmax outputs would convert confidence scores into calibrated probabilities, enabling threshold-based detection rate / false-alarm rate trade-offs that are operationally meaningful. A calibrated model would also allow the deployment of class-specific thresholds, where, for example, a lower softmax threshold for the Spoofing class compensates for its low recall.
+
+    \item \textbf{Encrypted traffic features.} Incorporating TLS-visible metadata (certificate fields, SNI, session length distributions) would extend the feature set to partially encrypted traffic and may improve detection of web-based attacks that are currently limited by the transport-layer representation.
+
+    \item \textbf{Online adaptation and concept drift.} The model is trained offline and deployed statically. In a production environment, network traffic distributions evolve over time. Integrating an online updating mechanism --- such as a sliding-window retraining schedule or an explicit drift detector --- would allow the system to adapt without full retraining.
+
+    \item \textbf{Transformer-based models for tabular IDS.} Recent work has applied attention-based tabular models (FT-Transformer, TabPFN) to intrusion detection benchmarks with promising results. Evaluating these architectures on CICIoT2023 under the same temporal split would provide a rigorous comparison point and test whether self-attention over feature tokens provides any advantage for this specific dataset.
+
+    \item \textbf{Real testbed deployment and feedback loop.} The demonstration currently classifies captures generated in a controlled setting. Deploying the serving component on a real IoT gateway, collecting misclassified flows, and incorporating them into a periodic retraining schedule would produce the first real-world validation of the pipeline's generalisation beyond the laboratory.
+\end{itemize}

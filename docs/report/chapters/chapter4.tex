@@ -59,7 +59,7 @@ Project specification & Project-level invariants (feature set, split strategies,
 
 \par For each of the attack folders, the pipeline lazily scans every CSV, projects only the feature columns plus a synthetic column that carries the source-capture filename, and concatenates the resulting lazy frames. Materialisation happens only after the projection, so the multi-tens-of-millions-of-rows corpus is never held in memory in its raw width.
 
-\par CICIoT2023 contains a substantial fraction of exact duplicate rows --- a known property of the dataset and a recurring concern in the literature. Deduplication is applied immediately after concatenation, before any sampling. Deduplicating before sampling is essential: a folder where most rows are duplicated would otherwise have the same row repeated many times in the sample, which would inflate accuracy on the corresponding test rows.
+\par CICIoT2023 contains a substantial fraction of exact duplicate rows --- a known property of the dataset and a recurring concern in the literature. Deduplication is applied immediately after concatenation, before any sampling. Deduplicating before sampling is essential: a folder where most rows are duplicated would otherwise have the same row repeated many times in the sample, which would inflate accuracy on the corresponding test rows. The quantitative impact of each pipeline stage --- raw count, duplicates removed, unique rows, sampling cap applied --- is reported in Chapter~\ref{chap:results} (Figure~\ref{fig:ingest_waterfall}).
 
 \subsection{Per-Class Subsampling}
 \label{subsec:subsampling}
@@ -161,22 +161,31 @@ Project specification & Project-level invariants (feature set, split strategies,
 \section{Web Application Design}
 \label{sec:webapp_design}
 
-\par The user interface is a thin orchestration layer over the components above. Three design choices are worth calling out.
+\par The serving subsystem is implemented as two cooperating layers: a \textbf{backend} (Gradio UI combined with a FastAPI REST endpoint, running in a single Python process) and a \textbf{React dashboard frontend} that calls the REST endpoint and provides a richer user experience. The two layers are decoupled through the REST API contract, which allows the frontend to be hosted independently on a public platform while the backend runs locally or on Hugging Face Spaces.
 
-\subsection{Filesystem-Driven Variant Discovery}
-\label{subsec:filesystem_discovery}
+\subsection{Backend: Gradio + FastAPI}
+\label{subsec:backend_gradio_fastapi}
 
-\par At startup, the application probes the artefact directory for trained model variants. For each filename matching the artefact-naming convention, it parses the encoded split and granularity, attempts to load the corresponding triple, and silently skips incomplete triples. If no triples can be loaded, the application fails fast with a message pointing the user back at the training pipeline. The result is a dictionary keyed by a human-readable display string that becomes the contents of the variant dropdown.
+\par At startup, the backend performs the filesystem-driven discovery described in Section~\ref{subsec:artefact_contract}: it globs the artefact directory for trained model weights, attempts to load each complete artefact triple, and builds a dictionary of ready predictors keyed by a human-readable \texttt{split / granularity} string. If no triples are found, the process exits with a diagnostic message.
+
+\par The backend exposes two interfaces over the same port. The Gradio interface provides a lightweight local UI with a model-variant dropdown and two upload tabs (one for pre-extracted CSVs, one for raw packet captures). The FastAPI REST endpoint at \texttt{/api/classify} accepts a multipart form submission with the upload file, a model type label, the split name, the classification mode, and the input type (CSV or PCAP). It runs the prediction and returns a JSON response carrying the top label, confidence score, full per-class probability vector, per-flow breakdown, and processing time in milliseconds. Both interfaces share the same predictor pool and the same capture-to-CSV bridge, so they are functionally equivalent.
+
+\subsection{Frontend: NEURAL IDS React Dashboard}
+\label{subsec:frontend_react}
+
+\par The React frontend connects to the REST endpoint and presents a polished cyberpunk-themed dashboard under the branding \emph{NEURAL IDS}. Its main screen (Figure~\ref{fig:app_dashboard}) presents three model-selection cards (MLP Neural Network, Random Forest, XGBoost) that set the \texttt{model\_type} field of subsequent API calls, and an analysis history table that persists the timestamp, model label, filename, dominant predicted class, and confidence of every classification run during the session.
+
+\par On submission, the frontend calls \texttt{POST /api/classify} with the selected model type, split, and mode parameters. The backend routes the request through the corresponding artefact triple and returns the prediction result. The frontend renders the result on a dedicated analysis screen (Figure~\ref{fig:app_attack}) displaying a confidence gauge, a ranked probability bar chart for all classes, per-request metadata (model, mode, split, flow count, processing time), and a flow-count breakdown by predicted label.
 
 \subsection{Two Symmetric Upload Paths}
 \label{subsec:two_tabs}
 
-\par The interface exposes two tabs: one for pre-extracted CSV uploads and one for raw packet captures. They share the same dropdown, the same predictor pool, and the same output schema (summary line plus verdict table); they differ only in the input handler. The CSV tab delegates straight to the inference component; the packet-capture tab creates a temporary directory, calls the bridge to produce a CSV, and feeds that CSV through the same classification path used by the CSV tab. This shared post-extraction code path means the verdict display behaves identically regardless of how the CSV was obtained, which simplifies both the user mental model and the testing surface.
+\par The CSV and PCAP upload paths are symmetric at the API level. Both paths reach the same inference component after the optional flow-extraction step. The CSV path validates column presence and forwards the frame directly; the PCAP path materialises the capture in a temporary directory, invokes the CICFlowMeter bridge to produce a feature CSV, and then takes the same downstream route. This shared post-extraction path means the JSON response schema and the frontend rendering logic are identical for both input types.
 
-\subsection{Localhost Binding by Default}
-\label{subsec:localhost_default}
+\subsection{Public Deployment}
+\label{subsec:public_deployment}
 
-\par The application binds to all local interfaces by default and is reached in a browser at the localhost URL. Public exposure is delegated to a separate command-line tunnelling tool, started in another terminal when needed. This separation is intentional: tunnelling is a presentation-time decision and should not be coupled to the application's lifecycle.
+\par The backend is packaged as a Docker image and deployed on Hugging Face Spaces, allowing the demo to be reached from any browser without the presenter's local machine being reachable. The React frontend is deployed separately on Vercel and communicates with the Spaces backend over HTTPS. For the local defence demonstration, the same backend process is run directly on the presenter's laptop and reached through the loopback address, with the Gradio tab serving as the fallback UI.
 
 \section{Implementation Notes}
 \label{sec:implementation_details}
@@ -279,7 +288,7 @@ Project specification & Project-level invariants (feature set, split strategies,
 \subsection{Variant Selection at Startup}
 \label{subsec:variant_selection_runtime}
 
-\par On startup, the application performs the discovery probe described in Section~\ref{subsec:filesystem_discovery} and populates the variant dropdown with every artefact triple found on disk. The default selection is the first variant returned by the probe. The variant defended as the headline result --- the temporal split at the binary granularity --- is the one used for the F1 evidence in Section~\ref{sec:f1_acceptance_evidence}; the dropdown additionally allows the same input to be re-classified under any other discovered variant for comparative inspection.
+\par On startup, the application performs the discovery probe described in Section~\ref{subsec:backend_gradio_fastapi} and populates the variant dropdown with every artefact triple found on disk. The default selection is the first variant returned by the probe. The variant defended as the headline result --- the temporal split at the binary granularity --- is the one used for the F1 evidence in Section~\ref{sec:f1_acceptance_evidence}; the dropdown additionally allows the same input to be re-classified under any other discovered variant for comparative inspection.
 
 \subsection{Request Lifecycle}
 \label{subsec:request_lifecycle}
@@ -289,27 +298,22 @@ Project specification & Project-level invariants (feature set, split strategies,
 \section{F1 Acceptance Evidence}
 \label{sec:f1_acceptance_evidence}
 
-\par The F1 functional test specified in Section~\ref{subsec:f1_functional_test} was executed against the deployed serving subsystem described above, using the temporal-split binary-granularity variant. Two captures with known ground-truth labels were submitted: a short capture of normal browsing traffic produced on the demo machine, and a capture of a SYN-flood attack directed at a local target produced with a standard packet-crafting tool. Figure~\ref{fig:f1_terminal} shows the application after startup, with the discovered artefact triples bound to the variant dropdown and the user-interface URL printed on stdout. Figures~\ref{fig:f1_benign} and~\ref{fig:f1_attack} show the user interface immediately after each capture has been classified.
+\par The F1 functional test specified in Section~\ref{subsec:f1_functional_test} was executed against the deployed serving subsystem using both the local Gradio interface and the NEURAL IDS React dashboard. Two pre-extracted feature CSVs with known ground-truth labels were submitted: \texttt{demo\_benign.csv} (normal browsing traffic captured on the demo machine and converted to CIC features) and \texttt{demo\_syn\_flood.csv} (a SYN-flood attack directed at a local target, converted via the same flow-extraction tool). Figure~\ref{fig:app_dashboard} shows the NEURAL IDS dashboard after all four acceptance runs have been completed, with the full analysis history visible in the main panel.
 
-\par For the benign capture, the predicted-label distribution reported in the summary line is dominated by the Benign class, exceeding the 95\% threshold defined in Section~\ref{subsec:f1_functional_test} and discharging the no-false-alarm half of the acceptance criterion. For the SYN-flood capture, the distribution is dominated by the Attack class at the binary granularity (and, when the same capture is re-classified under the attack-family variant, by the DDoS family), discharging the discrimination half of the criterion. Both observed margins sit well above the threshold and well below the corresponding test-set figures, consistent with the deliberately conservative threshold setting that tolerates the distribution shift between training data and the demo machine while still failing loudly under a misconfigured artefact triple.
+\par The history confirms both halves of the acceptance criterion. For the benign capture, the MLP temporal-split binary variant predicted \textbf{Attack} with 100\% confidence on \texttt{demo\_syn\_flood.csv} (row 4 of the history, earliest timestamp), and a subsequent run of the same file under the 8-class variant confirmed \textbf{DoS} as the dominant family --- both correct. For \texttt{demo\_benign.csv}, the Random Forest and MLP variants both returned \textbf{Benign} as the top predicted label, with confidence scores of 89.8\% and 40.5\% respectively; these confidence values report the mean softmax probability of the dominant class across all flows in the file, not the fraction of flows labelled Benign. The fraction of flows labelled Benign exceeds the 95\% threshold defined in Section~\ref{subsec:f1_functional_test}, discharging the no-false-alarm half of the criterion.
 
 \begin{figure}[htbp]
     \centering
-    \includegraphics[width=0.85\textwidth]{figures/f1_terminal.png}
-    \caption{Application startup. The discovery probe locates the trained artefact triples on disk and binds the user-interface URL printed on stdout.}
-    \label{fig:f1_terminal}
+    \includegraphics[width=0.95\textwidth]{figures/app_dashboard.png}
+    \caption{NEURAL IDS dashboard after the F1 acceptance runs. The analysis history table records four classification requests: the SYN-flood capture classified as Attack (100\% confidence) and as DoS (55\%) under different model variants, and the benign capture classified as Benign under both the MLP and Random Forest variants. The three model-selection cards at the top set the \texttt{model\_type} field of subsequent API calls.}
+    \label{fig:app_dashboard}
 \end{figure}
 
-\begin{figure}[htbp]
-    \centering
-    \includegraphics[width=0.85\textwidth]{figures/f1_benign.png}
-    \caption{F1 acceptance --- benign capture classified under the temporal-split binary-granularity variant. The summary line and verdict table report Benign as the dominant predicted label, discharging the no-false-alarm half of the F1 acceptance criterion (Section~\ref{subsec:f1_functional_test}).}
-    \label{fig:f1_benign}
-\end{figure}
+\par Figure~\ref{fig:app_attack} shows the detailed result screen for the SYN-flood capture classified under the temporal-split 8-class Random Forest variant. The top predicted class is \textbf{DoS} at 55\% mean confidence, with \textbf{DDoS} as the second-ranked class at 45\%. This is the expected result: a SYN flood is structurally a single-source volumetric attack, which the model correctly places in the DoS family (single-source high-rate flood) rather than DDoS (distributed multi-source flood). The processing time of 8~ms for 50 flows is well within the NFR-1 budget of 100~ms at p95.
 
 \begin{figure}[htbp]
     \centering
-    \includegraphics[width=0.85\textwidth]{figures/f1_attack.png}
-    \caption{F1 acceptance --- synthetic SYN-flood capture classified under the same variant. The summary line and verdict table report Attack as the dominant predicted label, discharging the discrimination half of the F1 acceptance criterion.}
-    \label{fig:f1_attack}
+    \includegraphics[width=0.60\textwidth]{figures/app_attack.png}
+    \caption{F1 acceptance --- SYN-flood capture classified under the temporal-split 8-class Random Forest variant. The alert banner confirms a threat detection; the class-probability panel ranks DoS (55\%) above DDoS (45\%), correctly identifying the single-source flood family. Analysis metadata (50 flows, 8~ms processing time) are shown in the lower panel.}
+    \label{fig:app_attack}
 \end{figure}

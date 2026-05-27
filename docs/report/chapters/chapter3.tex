@@ -78,7 +78,7 @@
     \item \textbf{FR-D3 --- Deterministic output schema.} For every classification request, the demo shall return: (i) a one-line summary with the total number of flows classified and a breakdown by predicted label, sorted by descending count; (ii) a table where each row contains the row index in the input, the predicted label, and the classifier's confidence (the maximum softmax probability), formatted with four decimal digits.
     \item \textbf{FR-D4 --- Self-validating input.} The demo shall verify that every uploaded CSV contains the expected feature columns and shall return a human-readable error message naming the missing columns if it does not. Flow-extraction failures on packet captures shall surface the underlying tool's error message rather than crashing the request.
     \item \textbf{FR-D5 --- No persistent storage of user input.} Submitted captures and CSVs shall be processed in a temporary location and removed when the request ends. The application shall not log captured payloads to disk.
-    \item \textbf{FR-D6 --- Optional public exposure.} The application shall be runnable in two modes: (a) bound to localhost for an in-room defense demonstration; (b) exposed publicly via a tunnelling service on demand. The web application itself shall not embed a tunnelling client; tunnelling is delegated to a separate command-line tool launched by the presenter.
+    \item \textbf{FR-D6 --- Permanent public deployment.} The application shall be deployed as a publicly accessible service reachable at a fixed HTTPS URL without any presenter-side configuration. The backend shall run as a containerised service (Docker image on Hugging Face Spaces) and the React frontend shall be deployed on a separate static-hosting platform (Vercel), with CORS configured so that the two tiers communicate across origins. A local Gradio tab UI is provided as a development and fallback interface, but the production target is the cloud-deployed stack.
 \end{itemize}
 
 \section{Non-Functional Requirements}
@@ -92,8 +92,8 @@
     \item \textbf{NFR-3 --- Reproducibility.} Every random source --- numerical libraries, deep-learning framework on CPU and on GPU, and dataset samplers --- shall be seeded from a single deterministic seed. Re-running the pipeline shall produce identical splits, identical class weights, and metrics within a tolerance of $\pm 0.001$ F1.
     \item \textbf{NFR-4 --- Memory budget.} The pipeline shall fit within 16~GB of system RAM at every stage. This rules out keeping the full multi-tens-of-millions-of-rows CSV materialised in memory and forces the use of lazy, columnar processing with on-disk intermediates.
     \item \textbf{NFR-5 --- Hardware portability.} The pipeline shall run on CPU-only hardware. GPU acceleration shall be used opportunistically when available, but shall never be a hard dependency.
-    \item \textbf{NFR-6 --- Cross-platform demo.} The demo application shall run on both Windows and Linux, with the only platform-specific concern being the path of the flow-extraction tool's launcher script.
-    \item \textbf{NFR-7 --- Operational simplicity.} Launching the demo shall require a single command. No additional services (databases, message queues, dedicated model servers) shall be required.
+    \item \textbf{NFR-6 --- Cross-platform demo.} The demo application shall run on both Windows and Linux, with the only platform-specific concern being the path of the flow-extraction tool's launcher script. The serving backend shall additionally be packageable as a Docker image for deployment on Hugging Face Spaces, enabling remote access without local installation.
+    \item \textbf{NFR-7 --- Operational simplicity.} The production demo shall be reachable at a permanent HTTPS URL with no presenter-side process management. The local development mode shall launch with a single command. Neither mode shall require a database, message queue, or dedicated model server; the backend loads artefacts directly into the application process at startup.
     \item \textbf{NFR-8 --- Honest reporting.} Numerical results in the thesis shall not cherry-pick the favourable random split; the temporal split shall be the headline result. Per-class metrics shall always be reported alongside aggregate metrics, so that majority-class dominance cannot mask poor minority-class performance.
 \end{itemize}
 
@@ -122,10 +122,10 @@
 \label{subsec:uc_classify_pcap}
 
 \textbf{Actor:} Demo presenter.\\
-\textbf{Precondition:} At least one artefact triple is present in the artefact directory; a CICFlowMeter backend is reachable; the web application is running and accessible in a browser.\\
+\textbf{Precondition:} The backend is deployed on Hugging Face Spaces with at least one artefact triple loaded; the React frontend is deployed on Vercel and reachable at its public URL; a CICFlowMeter backend is reachable on the server.\\
 \textbf{Main flow:}
 \begin{enumerate}
-    \item The presenter opens the demo URL and selects a model variant from the dropdown.
+    \item The presenter navigates to the public NEURAL IDS URL and selects a model type from the dashboard.
     \item The presenter switches to the packet-capture upload tab and uploads a capture produced by the attack-script step.
     \item The application copies the capture into a temporary location, invokes the flow-extraction tool as a subprocess, and obtains a feature CSV.
     \item The application loads the CSV, applies the scaler fitted on the training set, runs the model forward pass, applies softmax, and inverse-transforms the predicted indices to label strings.
@@ -153,27 +153,27 @@
 \label{subsec:uc_switch_variant}
 
 \textbf{Actor:} Demo presenter.\\
-\textbf{Precondition:} The web application is running and at least two artefact triples have been discovered at startup.\\
+\textbf{Precondition:} The application is accessible and at least two model types are available.\\
 \textbf{Main flow:}
 \begin{enumerate}
-    \item After running a classification, the presenter selects a different (split, granularity) pair from the dropdown.
-    \item The presenter triggers classification again on the same uploaded file.
-    \item The application routes the request through the predictor corresponding to the new dropdown value and renders the new verdicts.
+    \item After reviewing a classification result, the presenter returns to the dashboard and selects a different model card (e.g.\ switching from MLP to Random Forest).
+    \item The presenter submits a new analysis request with the same file.
+    \item The frontend sends the updated \texttt{model\_type} field to the REST endpoint; the backend runs the corresponding predictor and returns new verdicts.
 \end{enumerate}
-\textbf{Postcondition:} The verdict table reflects the newly selected model variant; no application restart was required.
+\textbf{Postcondition:} The result screen reflects the newly selected model; no application restart or page reload was required.
 
-\subsection{UC-5: Expose the Demo via a Public Tunnel}
+\subsection{UC-5: Access the Demo via the Public Deployment}
 \label{subsec:uc_tunnel}
 
-\textbf{Actor:} Demo presenter.\\
-\textbf{Precondition:} The demo is running locally; a tunnelling client is installed.\\
+\textbf{Actor:} Demo presenter or remote reviewer.\\
+\textbf{Precondition:} The backend is running on Hugging Face Spaces; the React frontend is deployed on Vercel.\\
 \textbf{Main flow:}
 \begin{enumerate}
-    \item The presenter opens a second terminal and starts a tunnel that points at the local demo URL.
-    \item The tunnelling service prints a temporary public HTTPS URL.
-    \item Remote viewers reach the demo through that URL; the request flow is otherwise identical to UC-2 / UC-3.
+    \item The actor navigates to the Vercel-hosted NEURAL IDS URL in any browser.
+    \item The frontend authenticates the user and loads the dashboard, contacting the HF Spaces backend over HTTPS.
+    \item The actor selects a model, uploads a CSV or packet capture, and receives classification results; the request flow is otherwise identical to UC-2 / UC-3.
 \end{enumerate}
-\textbf{Postcondition:} The demo is reachable from outside the local network; tearing the tunnel down revokes the URL.
+\textbf{Postcondition:} The demo is reachable from any network at a permanent URL; no presenter-side configuration or process management is required.
 
 \section{System Specification}
 \label{sec:system_specification}
@@ -261,7 +261,8 @@
 
 \begin{table}[htbp]
 \begin{center}
-\begin{tabular}{|p{75pt}|p{85pt}|p{195pt}|}
+\small
+\begin{tabular}{|p{70pt}|p{82pt}|p{198pt}|}
 \hline
 \textbf{Concern} & \textbf{Choice} & \textbf{Rationale} \\
 \hline
@@ -280,9 +281,9 @@ Tree baselines & Random Forest, gradient-boosted trees & Required to demonstrate
 \hline
 Capture $\to$ flow CSV & CICFlowMeter (the CIC team's reference tool) & Reimplementing flow aggregation in Python would risk subtle numerical drift between the live-demo features and the training distribution. \\
 \hline
-Demo UI & Lightweight Python web-UI framework with file upload, dropdowns, and dataframe widgets & Lowest-friction route to a thesis-defence demo; no JavaScript required. \\
+Demo UI & Gradio UI + FastAPI REST endpoint; React dashboard (NEURAL IDS) & Gradio serves the local tab interface; FastAPI exposes a REST endpoint consumed by the React frontend, which adds model cards, a confidence gauge, and session history. \\
 \hline
-Public exposure & Stateless HTTPS tunnelling client & No router configuration required; the URL expires when the presenter closes the tunnel. \\
+Public exposure & Docker on Hugging Face Spaces; React on Vercel & Backend containerised and served via HF Spaces; React frontend on Vercel. No router configuration required; permanent HTTPS URL. \\
 \hline
 Reproducibility & Single deterministic seed propagated to every random source & Required by NFR-3. \\
 \hline
@@ -301,7 +302,7 @@ Reproducibility & Single deterministic seed propagated to every random source & 
     \item \textbf{Dataset version.} The 39-feature public CSV release of CICIoT2023 is the only source of training data. The 46-feature variant used by some published comparisons was not available from the official UNB CIC distribution at the time of writing; it is mirrored on third-party platforms but its provenance and preprocessing differ from the official release. Numerical results are therefore not directly comparable across the two feature sets, and that gap is treated as a methodological scope decision rather than a defect.
     \item \textbf{Smart-home scope.} CICIoT2023 was captured in a smart-home testbed with 105 IoT devices. Generalisation to industrial control systems, medical IoT, or vehicular networks is not claimed.
     \item \textbf{No encrypted-payload features.} The dataset features are derived from headers and metadata only. Detection accuracy on heavily encrypted traffic where attack signal is concentrated in the payload is expected to be limited; web-family attacks (SQL injection, XSS, command injection) will be detected weakly because they are application-layer and the feature set is transport-layer. This is a property of the feature set, not a model defect, and is discussed openly in the results chapter.
-    \item \textbf{Single-machine deployment.} The demo runs on the presenter's laptop. Distributed serving, redundancy, and high-availability are out of scope.
-    \item \textbf{Trusted local audience.} The demo does not authenticate users. The expected audience is the thesis committee in a controlled room, optionally extended via an on-demand HTTPS tunnel for a known remote reviewer. Hardening the demo for hostile public exposure is out of scope.
+    \item \textbf{Cloud deployment scope.} The production serving target is a single-container deployment on Hugging Face Spaces (backend) and a static frontend on Vercel. Distributed serving, load balancing, and high-availability are out of scope; cold-start latency of the HF Spaces container is tolerated.
+    \item \textbf{Authentication and access control.} The deployed React frontend includes user authentication to restrict access during the thesis period. The authentication scope is limited to identity verification; no role-based permissions or audit logging are required. The Gradio tab UI, used only for local development, does not authenticate.
     \item \textbf{No online learning.} The deployed model is the one trained offline by the pipeline. The demo does not adapt to feedback during the session.
 \end{itemize}
