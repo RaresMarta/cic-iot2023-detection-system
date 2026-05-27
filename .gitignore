@@ -9,6 +9,9 @@ __pycache__/
 # editor / agent state
 .claude/
 
+# WandB run artifacts
+wandb/
+
 # LaTeX build artefacts
 *.aux
 *.bbl
