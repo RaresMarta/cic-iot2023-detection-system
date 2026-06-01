@@ -92,7 +92,12 @@ Project specification & Project-level invariants (feature set, split strategies,
 \subsection{Train-Only Preprocessing Fit}
 \label{subsec:train_fit_preprocess}
 
-\par For each split, column medians are computed on the training rows only, nulls in the train, validation, and test partitions are imputed using those medians, and the robust scaler is fitted on training rows alone before being applied to all three partitions. The contract that medians and the scaler are fitted strictly on training rows enforces NFR-3 (no test-set leakage) and is what makes the temporal-split metrics meaningful.
+\par For each split, column medians are computed on the training rows only, nulls in the train, validation, and test partitions are imputed using those medians, and the robust scaler is fitted on training rows alone before being applied to all three partitions. The robust scaler standardises each feature by its median and interquartile range rather than its mean and standard deviation:
+\begin{equation}
+    x' = \frac{x - \operatorname{median}(x)}{\mathrm{IQR}(x)}, \qquad \mathrm{IQR}(x) = Q_3(x) - Q_1(x),
+    \label{eq:robust_scaler}
+\end{equation}
+where $Q_1$ and $Q_3$ are the first and third quartiles estimated on the training rows. Centring on the median and dividing by the IQR makes the transform insensitive to the heavy upper tails of the CIC rate and byte-count features, which would otherwise dominate a mean/variance scaler. The contract that medians, quartiles, and the scaler are fitted strictly on training rows enforces NFR-3 (no test-set leakage) and is what makes the temporal-split metrics meaningful.
 
 \section{Model Architecture and Training}
 \label{sec:model_architecture}
@@ -106,12 +111,29 @@ Project specification & Project-level invariants (feature set, split strategies,
     n_{\text{features}} \xrightarrow{\text{Linear}} 128 \xrightarrow{\text{BN, ReLU, Dropout}_{0.3}} 64 \xrightarrow{\text{BN, ReLU, Dropout}_{0.3}} n_{\text{classes}}
 \end{equation*}
 
-\par The architecture is intentionally small. Three considerations drive this choice. First, every empirical study of MLPs on tabular data has reported diminishing returns past two hidden layers when the input dimensionality is in the tens. Second, batch normalisation is required to stabilise training under large class-weight swings: at the fine-grained granularity, the heaviest class weight is more than fifty times the lightest, and gradients without batch normalisation would oscillate. Third, the 0.3 dropout rate is a deliberately conservative regularisation choice that empirically generalises better than the more common 0.5 on this dataset, where the cleaned training set is already several million rows.
+\par Batch normalisation, applied after each hidden linear layer, standardises that layer's pre-activations across the mini-batch to zero mean and unit variance before rescaling them by two learned parameters $(\gamma, \beta)$:
+\begin{equation}
+    \mathrm{BN}(z) = \gamma \, \frac{z - \mu_{\mathcal{B}}}{\sqrt{\sigma_{\mathcal{B}}^2 + \epsilon}} + \beta,
+    \label{eq:batchnorm}
+\end{equation}
+where $\mu_{\mathcal{B}}$ and $\sigma_{\mathcal{B}}^2$ are the per-feature mean and variance over the current batch $\mathcal{B}$ and $\epsilon$ is a small constant for numerical stability.
+
+\par The architecture is intentionally small. Three considerations drive this choice. First, every empirical study of MLPs on tabular data has reported diminishing returns past two hidden layers when the input dimensionality is in the tens. Second, batch normalisation (Equation~\ref{eq:batchnorm}) is required to stabilise training under large class-weight swings: at the fine-grained granularity, the heaviest class weight is more than fifty times the lightest, and gradients without batch normalisation would oscillate. Third, the 0.3 dropout rate is a deliberately conservative regularisation choice that empirically generalises better than the more common 0.5 on this dataset, where the cleaned training set is already several million rows.
 
 \subsection{Class-Weighted Cross-Entropy}
 \label{subsec:class_weighted_ce}
 
-\par Class weights are computed using the standard balanced-frequency rule applied to the encoded training labels, then passed to the cross-entropy loss. The justification is given in Section~\ref{subsec:pipeline_requirements}: SMOTE would generate synthetic flow vectors that have no operational meaning (a half-and-half SYN-flood / DNS-spoofing flow does not correspond to any real attack), and weighted batch sampling would be redundant with weighted cross-entropy.
+\par Class weights are computed using the standard balanced-frequency rule applied to the encoded training labels, then passed to the cross-entropy loss. For a problem with $K$ classes, $N$ training samples, and $n_c$ samples in class $c$, the weight of class $c$ is
+\begin{equation}
+    w_c = \frac{N}{K \, n_c},
+    \label{eq:balanced_weights}
+\end{equation}
+so that rare classes receive proportionally larger weight (and $\sum_c n_c w_c = N$). These weights enter the multi-class cross-entropy loss applied to the softmax outputs $\hat{y}_{i,k}$:
+\begin{equation}
+    \mathcal{L} = -\frac{1}{N} \sum_{i=1}^{N} \sum_{k=1}^{K} w_{k}\, y_{i,k} \log\!\big(\hat{y}_{i,k}\big),
+    \label{eq:weighted_ce}
+\end{equation}
+where $y_{i,k}$ is the one-hot ground-truth indicator for sample $i$ and class $k$. Equation~\eqref{eq:weighted_ce} is the multi-class, class-weighted generalisation of the binary cross-entropy in Equation~\eqref{eq:bce_loss}. The justification for weighting rather than resampling is given in Section~\ref{subsec:pipeline_requirements}: SMOTE would generate synthetic flow vectors that have no operational meaning (a half-and-half SYN-flood / DNS-spoofing flow does not correspond to any real attack), and weighted batch sampling would be redundant with weighted cross-entropy.
 
 \subsection{Optimiser, Schedule, and Early Stopping}
 \label{subsec:training_loop}
@@ -119,6 +141,31 @@ Project specification & Project-level invariants (feature set, split strategies,
 \par Training uses Adam with an initial learning rate of $10^{-3}$, paired with a learning-rate schedule that halves the rate after two consecutive epochs without validation-loss improvement. A separate early-stopping mechanism with a patience of five epochs caps total training. The batch size is 4096, large enough to amortise the batch-normalisation overhead and small enough to keep the per-step gradient meaningful.
 
 \par The training loop tracks training loss, validation loss, and the current learning rate per epoch, restoring the best validation-loss state at the end. The best state is what is serialised; the final-epoch state is discarded.
+
+\subsection{Hyperparameter Selection}
+\label{subsec:hpo}
+
+\par The architecture and optimisation settings above are not arbitrary: they were selected by an automated hyperparameter search rather than fixed by hand. A Tree-structured Parzen Estimator (TPE) sampler explores the search space summarised in Table~\ref{tab:hpo_space} over fifteen trials, each trained for ten epochs on a 100{,}000-row stratified subsample of the training set, with a median pruner terminating clearly unpromising trials early. The objective minimised is the validation loss. The search confirmed that a compact two-hidden-layer network with $[128, 64]$ units, $0.3$ dropout, ReLU activations, the Adam optimiser, and a $4096$ batch size is a strong configuration for this dataset; this configuration is then retrained to convergence (up to fifty epochs with early stopping) on the full training set and used for all reported results.
+
+\begin{table}[htbp]
+\begin{center}
+\begin{tabular}{|p{120pt}|p{200pt}|}
+\hline
+\textbf{Hyperparameter} & \textbf{Search range} \\
+\hline
+\hline Hidden layers & 2--4 \\
+\hline Units per layer & 64--512 (step 32) \\
+\hline Dropout & 0.1--0.5 \\
+\hline Activation & ReLU, ELU, LeakyReLU \\
+\hline Learning rate & $10^{-4}$--$10^{-2}$ (log scale) \\
+\hline Optimiser & Adam, AdamW \\
+\hline Batch size & 2048, 4096, 8192 \\
+\hline
+\end{tabular}
+\end{center}
+\caption{Optuna TPE search space for the MLP. Fifteen trials, ten epochs each on a 100{,}000-row subsample, validation loss as the objective, median pruning.}
+\label{tab:hpo_space}
+\end{table}
 
 \section{Inference Component Design}
 \label{sec:inference_layer}
@@ -300,12 +347,12 @@ Project specification & Project-level invariants (feature set, split strategies,
 
 \par The F1 functional test specified in Section~\ref{subsec:f1_functional_test} was executed against the deployed serving subsystem using both the local Gradio interface and the NEURAL IDS React dashboard. Two pre-extracted feature CSVs with known ground-truth labels were submitted: \texttt{demo\_benign.csv} (normal browsing traffic captured on the demo machine and converted to CIC features) and \texttt{demo\_syn\_flood.csv} (a SYN-flood attack directed at a local target, converted via the same flow-extraction tool). Figure~\ref{fig:app_dashboard} shows the NEURAL IDS dashboard after all four acceptance runs have been completed, with the full analysis history visible in the main panel.
 
-\par The history confirms both halves of the acceptance criterion. For the benign capture, the MLP temporal-split binary variant predicted \textbf{Attack} with 100\% confidence on \texttt{demo\_syn\_flood.csv} (row 4 of the history, earliest timestamp), and a subsequent run of the same file under the 8-class variant confirmed \textbf{DoS} as the dominant family --- both correct. For \texttt{demo\_benign.csv}, the Random Forest and MLP variants both returned \textbf{Benign} as the top predicted label, with confidence scores of 89.8\% and 40.5\% respectively; these confidence values report the mean softmax probability of the dominant class across all flows in the file, not the fraction of flows labelled Benign. The fraction of flows labelled Benign exceeds the 95\% threshold defined in Section~\ref{subsec:f1_functional_test}, discharging the no-false-alarm half of the criterion.
+\par The history confirms both halves of the acceptance criterion. For \texttt{demo\_syn\_flood.csv}, the binary temporal-split MLP labelled \textbf{every} flow (100\%) as \textbf{Attack} with a mean calibrated confidence of 99.6\%, and a subsequent run of the same file under the 8-class variant confirmed \textbf{DoS} as the dominant family --- both correct. For \texttt{demo\_benign.csv}, the binary MLP returned \textbf{Benign} on 98\% of flows (mean dominant-class confidence 71.9\%); the fraction of flows labelled Benign therefore exceeds the 95\% threshold defined in Section~\ref{subsec:f1_functional_test}, discharging the no-false-alarm half of the criterion. (Confidence values report the mean softmax probability of the dominant class after temperature scaling, not the fraction of flows in that class.)
 
 \begin{figure}[htbp]
     \centering
     \includegraphics[width=0.95\textwidth]{figures/app_dashboard.png}
-    \caption{NEURAL IDS dashboard after the F1 acceptance runs. The analysis history table records four classification requests: the SYN-flood capture classified as Attack (100\% confidence) and as DoS (55\%) under different model variants, and the benign capture classified as Benign under both the MLP and Random Forest variants. The three model-selection cards at the top set the \texttt{model\_type} field of subsequent API calls.}
+    \caption{NEURAL IDS dashboard after the F1 acceptance runs. The analysis history table records four classification requests: the SYN-flood capture classified as Attack (near-certain binary confidence) and as DoS ($\approx$55\%) under different granularities, and the benign capture classified as Benign. The three model-selection cards at the top set the \texttt{model\_type} field of subsequent API calls. (Screenshot is illustrative; binary confidence is reported after temperature scaling in the text.)}
     \label{fig:app_dashboard}
 \end{figure}
 

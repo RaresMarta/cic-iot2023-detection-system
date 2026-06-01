@@ -36,6 +36,16 @@ class IDSPredictor:
         self.model.load_state_dict(state)
         self.model.eval()
 
+        # Optional temperature scaling for calibrated confidence (Guo et al. 2017).
+        # Falls back to T=1.0 (no-op) if the calibration artefact is absent.
+        self.temperature = 1.0
+        temp_path = self.models_dir / 'temperature_scaling.joblib'
+        if temp_path.exists():
+            try:
+                self.temperature = float(joblib.load(temp_path).get(mode, {}).get('T', 1.0))
+            except Exception:
+                self.temperature = 1.0
+
     def preprocess(self, df: pl.DataFrame) -> np.ndarray:
         missing = [c for c in X_COLUMNS if c not in df.columns]
         if missing:
@@ -56,7 +66,7 @@ class IDSPredictor:
         X = self.preprocess(df)
         with torch.no_grad():
             logits = self.model(torch.from_numpy(X).to(self.device))
-            probs  = torch.softmax(logits, dim=1).cpu().numpy()
+            probs  = torch.softmax(logits / self.temperature, dim=1).cpu().numpy()
         preds  = probs.argmax(axis=1)
         labels = self.encoder.inverse_transform(preds)
         return {
