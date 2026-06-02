@@ -15,14 +15,14 @@
 
 \par Signature-based IDS, exemplified by tools such as Snort and Suricata, operate by scanning network traffic for predefined patterns of known malicious activity \cite{Roesch1999}. These signatures can describe byte sequences, header anomalies, or protocol violations. Signature-based systems are highly effective at detecting known attacks with high precision, and they produce few false positives when the signature database is well-maintained.
 
-\par However, their static nature makes them fundamentally limited against novel threats. Zero-day exploits, polymorphic attacks, and previously unseen attack variants will not match any existing signature and will therefore pass undetected. Additionally, signature databases require continuous manual updates to remain effective, which introduces an inherent lag between the emergence of a new attack and the availability of its corresponding signature.
+\par However, their static nature makes them fundamentally limited against novel threats. Zero-day exploits, polymorphic attacks, and previously unseen attack variants will not match any existing signature and will therefore pass undetected. Signature databases also require continuous manual updates to remain effective, which introduces an inherent lag between the emergence of a new attack and the availability of its corresponding signature.
 
 \subsection{Anomaly-Based Detection}
 \label{subsec:anomaly_ids}
 
 \par Anomaly-based IDS take a different approach: instead of matching against known attack patterns, they learn a model of normal network behavior and flag deviations from this baseline as suspicious. This paradigm has the significant advantage of being able to detect previously unseen attacks, since any traffic that deviates sufficiently from the learned normal profile will trigger an alert.
 
-\par The trade-off is a higher false positive rate. Unusual but legitimate traffic --- such as a sudden spike in usage during a product launch, or an uncommon protocol used by a newly deployed application --- can be incorrectly flagged as malicious. The sensitivity of anomaly-based systems depends heavily on the quality of the normal behavior model and on the threshold chosen to separate normal from anomalous activity.
+\par The trade-off is a higher false positive rate. Unusual but legitimate traffic (such as a sudden spike in usage during a product launch, or an uncommon protocol used by a newly deployed application) can be incorrectly flagged as malicious. The sensitivity of anomaly-based systems depends heavily on the quality of the normal behavior model and on the threshold chosen to separate normal from anomalous activity.
 
 \par Figure \ref{fig:ids_pipeline} illustrates the typical architecture of a real-time deep learning-based IDS, showing the end-to-end pipeline from raw packet capture to alert generation.
 
@@ -78,7 +78,7 @@
     \label{fig:ids_pipeline}
 \end{figure}
 
-\par From a machine learning perspective, intrusion detection maps naturally to classification. In its simplest form, the task is binary: distinguish benign traffic from malicious flows. In practice, multi-class setups are common, with systems trained to recognize distinct categories of attacks such as DDoS, denial-of-service, reconnaissance, or botnet activity. The input is typically tabular flow data, where each flow is described by numerical features such as packet counts, byte rates, and TCP flag statistics \cite{Sharafaldin2018}.
+\par From a machine learning perspective, intrusion detection maps naturally to classification. In its simplest form, the task is binary: distinguish benign traffic from malicious flows. Multi-class setups are also common, with systems trained to recognize distinct categories of attacks such as DDoS, denial-of-service, reconnaissance, or botnet activity. The input is typically tabular flow data, where each flow is described by numerical features such as packet counts, byte rates, and TCP flag statistics \cite{Sharafaldin2018}.
 
 \subsection{Key Challenges}
 \label{subsec:ids_challenges}
@@ -86,7 +86,7 @@
 \par Deep learning models for IDS must operate under several challenges that frequently undermine the transfer from benchmark performance to real-world deployment:
 
 \begin{itemize}
-    \item \textbf{Class imbalance}: In most network environments, benign traffic vastly outnumbers attack traffic. Benchmark datasets reflect this --- for example, in CICIoT2023, DDoS attacks account for approximately 73\% of all records, while web-based attacks represent less than 0.1\% \cite{CICIoT2023}. This imbalance can cause models to favor the majority class, making accuracy a misleading metric and requiring techniques such as weighted loss functions or stratified sampling.
+    \item \textbf{Class imbalance}: In most network environments, benign traffic vastly outnumbers attack traffic. Benchmark datasets reflect this: for example, in CICIoT2023, DDoS attacks account for approximately 73\% of all records, while web-based attacks represent less than 0.1\% \cite{CICIoT2023}. This imbalance can cause models to favor the majority class, making accuracy a misleading metric and requiring techniques such as weighted loss functions or stratified sampling.
     \item \textbf{Concept drift}: Network traffic distributions change over time due to evolving user behavior, new applications, updated protocols, and shifting attacker strategies. A model trained on a static dataset may degrade in production as the traffic it encounters diverges from its training distribution \cite{Andresini2021}.
     \item \textbf{Dataset realism}: Most benchmark datasets are generated in controlled testbed environments rather than captured from production networks. While testbeds allow for precise labeling of attacks, they may not fully capture the diversity and complexity of real-world traffic, including encrypted communications, multi-stage attacks, and the noise inherent in large-scale networks \cite{Lansky2021}.
     \item \textbf{Deployment constraints}: A practical IDS must meet latency and throughput requirements, integrate with existing security infrastructure, and remain maintainable over time. These operational aspects are frequently underreported in the research literature, which tends to focus on classification accuracy on static benchmarks \cite{Apruzzese2023}.
@@ -96,7 +96,7 @@
 \section{Deep Learning for Network Intrusion Detection}
 \label{sec:dl_ids}
 
-\par Traditional machine learning approaches to IDS --- such as Support Vector Machines, Decision Trees, and Random Forests --- depend on manually engineered features and often struggle with high-dimensional, imbalanced, and non-stationary data. Deep learning offers an alternative by learning hierarchical representations directly from raw or lightly processed inputs. In the IDS domain, the literature reports a wide range of deep learning architectures, including deep feed-forward networks, convolutional neural networks (CNNs), recurrent neural networks (RNNs) with Long Short-Term Memory (LSTM) units, autoencoders, and more recently transformer-based models with self-attention \cite{Lansky2021}.
+\par Traditional machine learning approaches to IDS (such as Support Vector Machines, Decision Trees, and Random Forests) depend on manually engineered features and often struggle with high-dimensional, imbalanced, and non-stationary data. Deep learning offers an alternative by learning hierarchical representations directly from raw or lightly processed inputs. In the IDS domain, the literature reports many deep learning architectures, including deep feed-forward networks, convolutional neural networks (CNNs), recurrent neural networks (RNNs) with Long Short-Term Memory (LSTM) units, autoencoders, and more recently transformer-based models with self-attention \cite{Lansky2021}.
 
 \par This section focuses on the multi-layer perceptron (MLP), which serves as the primary model in this thesis, and briefly surveys other architectures for context.
 
@@ -127,7 +127,7 @@ using backpropagation and an optimizer such as Adam \cite{Vinayakumar2019}.
 \par MLPs are particularly well suited for flow-level intrusion detection for several reasons:
 
 \begin{itemize}
-    \item \textbf{Native fit for tabular data}: Network flow features form fixed-length numerical vectors --- exactly the input format MLPs are designed for. Unlike CNNs (which assume spatial structure) or RNNs (which assume sequential structure), MLPs make no structural assumptions about the input, which is appropriate when each sample is an independent flow record with heterogeneous features \cite{Kadra2021}.
+    \item \textbf{Native fit for tabular data}: Network flow features form fixed-length numerical vectors, exactly the input format MLPs are designed for. Unlike CNNs (which assume spatial structure) or RNNs (which assume sequential structure), MLPs make no structural assumptions about the input, which is appropriate when each sample is an independent flow record with heterogeneous features \cite{Kadra2021}.
     \item \textbf{Fast inference}: MLP inference consists of a sequence of matrix multiplications, which are highly optimized on modern hardware. This makes MLPs particularly suitable for real-time IDS, where low latency is critical. A small MLP can process tens of thousands of flows per second on a single CPU core \cite{Vinayakumar2019}.
     \item \textbf{Competitive performance on tabular tasks}: Recent research has shown that well-regularized MLPs are competitive with both tree-based models and more complex neural architectures on tabular classification tasks. Kadra et al.\ demonstrated that an MLP with a carefully tuned combination of regularization techniques (dropout, weight decay, batch normalization) outperformed both XGBoost and specialized architectures such as TabNet on nearly half of the 40 datasets evaluated \cite{Kadra2021}.
     \item \textbf{Strong baseline}: In IDS research, MLPs consistently achieve 95--99\% accuracy on standard benchmarks, making them an honest and competitive baseline against which to measure more complex architectures \cite{Vinayakumar2019, Ferrag2020}.
@@ -138,7 +138,7 @@ using backpropagation and an optimizer such as Adam \cite{Vinayakumar2019}.
 \begin{itemize}
     \item \textbf{Class imbalance handling}: Weighted loss functions assign higher weight to minority (attack) classes in the cross-entropy loss. Alternatively, oversampling techniques such as SMOTE can be used to generate synthetic minority samples, or focal loss can be applied to down-weight well-classified examples and focus training on hard cases.
     \item \textbf{Regularization}: Dropout (randomly zeroing neuron outputs during training with a probability typically between 0.2 and 0.5) prevents co-adaptation of neurons. Weight decay (L2 regularization) penalizes large weights. Early stopping monitors validation loss and halts training when it begins to increase.
-    \item \textbf{Feature scaling}: Network flow features have vastly different scales (e.g., packet counts vs.\ flow durations in microseconds). Standard normalization --- fitting a scaler on the training set and applying it to validation and test sets --- is essential for stable gradient-based optimization.
+    \item \textbf{Feature scaling}: Network flow features have vastly different scales (e.g., packet counts vs.\ flow durations in microseconds). Standard normalization (fitting a scaler on the training set and applying it to validation and test sets) is essential for stable gradient-based optimization.
 \end{itemize}
 
 \subsection{Other Deep Learning Architectures for IDS}
@@ -226,7 +226,7 @@ using backpropagation and an optimizer such as Adam \cite{Vinayakumar2019}.
     \item \textbf{Packet count features} (5 features): counts of ACK, SYN, FIN, URG, and RST packets.
     \item \textbf{Protocol indicator features} (14 binary features): binary indicators for HTTP, HTTPS, DNS, Telnet, SMTP, SSH, IRC, TCP, UDP, DHCP, ARP, ICMP, IPv, and LLC.
     \item \textbf{Packet length statistics} (6 features): total sum, minimum, maximum, average, standard deviation, and individual packet length.
-    \item \textbf{Aggregate statistical features} (6 features): packet count in flow, magnitude, radius, covariance, variance, and weight --- derived from combined incoming and outgoing packet statistics.
+    \item \textbf{Aggregate statistical features} (6 features): packet count in flow, magnitude, radius, covariance, variance, and weight, derived from combined incoming and outgoing packet statistics.
 \end{itemize}
 
 \par At the time of writing, the publicly available CSV release distributed by the Canadian Institute for Cybersecurity contains a \textbf{39-feature subset} of the 46 features described in the paper. Specifically, the public CSV omits the source and destination rate features, the URG packet count, and four of the six aggregate statistics (\emph{Magnitude}, \emph{Radius}, \emph{Covariance}, and \emph{Weight}). The 39-feature version is the basis for all experiments and the live demonstration in this thesis. This is acknowledged as a deliberate scope decision: results in this work are not numerically directly comparable to papers that report on the full 46-feature variant, and that gap is part of the methodological story rather than an oversight.
@@ -274,7 +274,7 @@ using backpropagation and an optimizer such as Adam \cite{Vinayakumar2019}.
 \par Several limitations of the CICIoT2023 dataset should be acknowledged:
 
 \begin{itemize}
-    \item \textbf{Simulated environment}: Although real IoT devices are used, the attacks are executed in a controlled laboratory setting. Real-world attackers combine techniques, adapt strategies, and conceal their actions --- none of which are captured in a static dataset.
+    \item \textbf{Simulated environment}: Although real IoT devices are used, the attacks are executed in a controlled laboratory setting. Real-world attackers combine techniques, adapt strategies, and conceal their actions, none of which are captured in a static dataset.
     \item \textbf{No encrypted traffic}: The features are extracted from packet headers and metadata. While HTTPS is flagged as a binary indicator, the dataset does not contain features derived from encrypted payload inspection. IoT traffic is increasingly encrypted, which limits the generalizability of models trained on this data.
     \item \textbf{Smart home scope}: The testbed represents a single domain. Industrial IoT, healthcare IoT, and other verticals are not represented, and models may not transfer to those environments.
     \item \textbf{Severe class imbalance}: As noted above, the most extreme ratio exceeds 5,000:1, requiring careful handling during both training and evaluation.

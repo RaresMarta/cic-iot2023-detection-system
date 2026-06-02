@@ -47,7 +47,7 @@ Project specification & Project-level invariants (feature set, split strategies,
     \item the trained model weights for the (split, granularity) pair.
 \end{itemize}
 
-\par The artefact filenames encode both the split and the granularity in a uniform pattern. As a consequence, the web application can probe the artefact directory at startup, parse each filename, and instantiate one inference component per complete artefact triple it finds --- with no hard-coded list of variants. Exposing a newly trained variant in the user interface is therefore purely a question of dropping its three files into the artefact directory and restarting the application.
+\par The artefact filenames encode both the split and the granularity in a uniform pattern. As a consequence, the web application can probe the artefact directory at startup, parse each filename, and instantiate one inference component per complete artefact triple it finds, with no hard-coded list of variants. Exposing a newly trained variant in the user interface is therefore purely a question of dropping its three files into the artefact directory and restarting the application.
 
 \section{Data Pipeline Design}
 \label{sec:data_pipeline_design}
@@ -59,7 +59,7 @@ Project specification & Project-level invariants (feature set, split strategies,
 
 \par For each of the attack folders, the pipeline lazily scans every CSV, projects only the feature columns plus a synthetic column that carries the source-capture filename, and concatenates the resulting lazy frames. Materialisation happens only after the projection, so the multi-tens-of-millions-of-rows corpus is never held in memory in its raw width.
 
-\par CICIoT2023 contains a substantial fraction of exact duplicate rows --- a known property of the dataset and a recurring concern in the literature. Deduplication is applied immediately after concatenation, before any sampling. Deduplicating before sampling is essential: a folder where most rows are duplicated would otherwise have the same row repeated many times in the sample, which would inflate accuracy on the corresponding test rows. The quantitative impact of each pipeline stage --- raw count, duplicates removed, unique rows, sampling cap applied --- is reported in Chapter~\ref{chap:results} (Figure~\ref{fig:ingest_waterfall}).
+\par CICIoT2023 contains a substantial fraction of exact duplicate rows, a known property of the dataset and a recurring concern in the literature. Deduplication is applied immediately after concatenation, before any sampling. Deduplicating before sampling is essential: a folder where most rows are duplicated would otherwise have the same row repeated many times in the sample, which would inflate accuracy on the corresponding test rows. The quantitative impact of each pipeline stage (raw count, duplicates removed, unique rows, sampling cap applied) is reported in Chapter~\ref{chap:results} (Figure~\ref{fig:ingest_waterfall}).
 
 \subsection{Per-Class Subsampling}
 \label{subsec:subsampling}
@@ -71,12 +71,12 @@ Project specification & Project-level invariants (feature set, split strategies,
 \subsection{Caching}
 \label{subsec:caching}
 
-\par The deduplicated, subsampled, labelled rows are concatenated across folders and written to a single Zstandard-compressed columnar file. Subsequent runs skip ingestion and load from this cache directly. Regeneration is forced by deleting the cache file --- this is documented inline so future runs do not silently use a stale cache after sampling logic changes.
+\par The deduplicated, subsampled, labelled rows are concatenated across folders and written to a single Zstandard-compressed columnar file. Subsequent runs skip ingestion and load from this cache directly. Regeneration is forced by deleting the cache file. This is documented inline so future runs do not silently use a stale cache after sampling logic changes.
 
 \subsection{Cleaning}
 \label{subsec:cleaning}
 
-\par The cleaning phase performs three operations on the materialised frame. First, null-label rows are dropped (defensive only --- labels come from folder names, so this should be a no-op). Second, infinities are replaced with nulls; the actual median imputation is deferred to after the train/validation/test split so the medians are computed on the training partition only. Third, a $\log(1+x)$ transform is applied to the heavy-tailed continuous features (rates, total bytes, inter-arrival times). Binary protocol and flag indicators are excluded from the log transform.
+\par The cleaning phase performs three operations on the materialised frame. First, null-label rows are dropped (defensive only; labels come from folder names, so this should be a no-op). Second, infinities are replaced with nulls; the actual median imputation is deferred to after the train/validation/test split so the medians are computed on the training partition only. Third, a $\log(1+x)$ transform is applied to the heavy-tailed continuous features (rates, total bytes, inter-arrival times). Binary protocol and flag indicators are excluded from the log transform.
 
 \subsection{Three Split Strategies}
 \label{subsec:split_strategies}
@@ -87,7 +87,7 @@ Project specification & Project-level invariants (feature set, split strategies,
 
 \par \textbf{Per-capture split.} Two consecutive group-aware splits with the source-capture filename as the group identifier produce a 70/15/15 split where no source capture ever appears in more than one partition. This eliminates within-session redundancy leaking across the boundary, but preserves no temporal order.
 
-\par \textbf{Temporal split (headline).} For each attack folder, the source captures are sorted by filename and partitioned chronologically: the earliest 70\% become train, the next 15\% become validation, and the latest 15\% become test. Folders with fewer than three distinct source captures fall back to a row-level temporal split inside the folder. This mirrors deployment --- train on past, test on future --- and is the headline result reported in the thesis. The temporal F1 is expected to sit a few points below the random F1; that gap is the honest generalisation story.
+\par \textbf{Temporal split (headline).} For each attack folder, the source captures are sorted by filename and partitioned chronologically: the earliest 70\% become train, the next 15\% become validation, and the latest 15\% become test. Folders with fewer than three distinct source captures fall back to a row-level temporal split inside the folder. This mirrors deployment (train on past, test on future) and is the headline result reported in the thesis. The temporal F1 is expected to sit a few points below the random F1; that gap is the honest generalisation story.
 
 \subsection{Train-Only Preprocessing Fit}
 \label{subsec:train_fit_preprocess}
@@ -183,7 +183,7 @@ where $y_{i,k}$ is the one-hot ground-truth indicator for sample $i$ and class $
     \item Residual nulls are filled with zeros after the transform. This is a defensive fill: at training time, median imputation handled nulls, but the trained scaler operates in the transformed space, so a residual null in a live request is filled with a constant rather than a re-derived median.
 \end{enumerate}
 
-\par The transformed array is then passed through the scaler's transform method --- never a re-fit. The scaler is treated as immutable at inference time.
+\par The transformed array is then passed through the scaler's transform method, never a re-fit. The scaler is treated as immutable at inference time.
 
 \subsection{Confidence and Label Decoding}
 \label{subsec:confidence_decoding}
@@ -220,7 +220,7 @@ where $y_{i,k}$ is the one-hot ground-truth indicator for sample $i$ and class $
 \subsection{Frontend: NEURAL IDS React Dashboard}
 \label{subsec:frontend_react}
 
-\par The React frontend connects to the REST endpoint and presents a polished cyberpunk-themed dashboard under the branding \emph{NEURAL IDS}. Its main screen (Figure~\ref{fig:app_dashboard}) presents three model-selection cards (MLP Neural Network, Random Forest, XGBoost) that set the \texttt{model\_type} field of subsequent API calls, and an analysis history table that persists the timestamp, model label, filename, dominant predicted class, and confidence of every classification run during the session.
+\par The React frontend connects to the REST endpoint and presents a polished cyberpunk-themed dashboard under the branding \emph{NEURAL IDS}. Its main screen (Figure~\ref{fig:app_dashboard}) presents three model-selection cards (MLP Neural Network, Random Forest, XGBoost) that set the \texttt{model\_type} field of subsequent API calls, and an analysis history table that persists the timestamp, model label, filename, dominant predicted class, and confidence of every classification run, scoped to the signed-in user and retained across sessions (Section~\ref{subsec:auth_persistence}).
 
 \par On submission, the frontend calls \texttt{POST /api/classify} with the selected model type, split, and mode parameters. The backend routes the request through the corresponding artefact triple and returns the prediction result. The frontend renders the result on a dedicated analysis screen (Figure~\ref{fig:app_attack}) displaying a confidence gauge, a ranked probability bar chart for all classes, per-request metadata (model, mode, split, flow count, processing time), and a flow-count breakdown by predicted label.
 
@@ -229,10 +229,99 @@ where $y_{i,k}$ is the one-hot ground-truth indicator for sample $i$ and class $
 
 \par The CSV and PCAP upload paths are symmetric at the API level. Both paths reach the same inference component after the optional flow-extraction step. The CSV path validates column presence and forwards the frame directly; the PCAP path materialises the capture in a temporary directory, invokes the CICFlowMeter bridge to produce a feature CSV, and then takes the same downstream route. This shared post-extraction path means the JSON response schema and the frontend rendering logic are identical for both input types.
 
+\subsection{Authentication and Result Persistence}
+\label{subsec:auth_persistence}
+
+\par The deployed frontend communicates with two independent backends, and that separation is the central design decision of the serving tier (Figure~\ref{fig:deployment_topology}). The first is the \emph{stateless inference channel}: the React single-page application issues a cross-origin \texttt{POST /api/classify} to the FastAPI endpoint on Hugging Face Spaces (Section~\ref{subsec:backend_gradio_fastapi}) and receives a JSON verdict. That backend holds no database and retains nothing about the user between requests. It is the artefact-driven predictor described throughout this chapter, merely reached over HTTPS. The second is the \emph{stateful identity-and-history channel}: the same application talks directly to a managed Supabase project for authentication and for persisting the user's past results. Inference and identity are therefore fully decoupled: either backend can be replaced without touching the other, and an inference request never blocks on the persistence layer.
+
+\par Authentication uses Supabase's email/password provider. On sign-in the client receives a JSON Web Token that is attached to subsequent storage requests, and the session is restored on reload from the persisted token. After each classification, the results screen writes a single row into the \texttt{analyses} table (Table~\ref{tab:analyses_schema}), tagged with the authenticated user's identifier; the dashboard reads the same table back to render the history list. Crucially, the row carries only \emph{derived result metadata} (never the uploaded capture or CSV), so the persistence tier remains consistent with FR-D5. Per-user isolation is not enforced in client code: a row-level-security policy on the table restricts every \texttt{select} and \texttt{insert} to rows whose \texttt{user\_id} matches the caller's authenticated identifier, so one user can never read another's history even though all rows share a single table.
+
+\begin{table}[htbp]
+\begin{center}
+\begin{tabular}{|p{145pt}|p{220pt}|}
+\hline
+\textbf{Column} & \textbf{Meaning} \\
+\hline
+\hline
+\texttt{id} & Surrogate primary key (UUID). \\
+\hline
+\texttt{user\_id} & Owning user; foreign key to the authentication identity and the predicate of the row-level-security policy. \\
+\hline
+\texttt{created\_at} & Server-side timestamp of the classification. \\
+\hline
+\texttt{model\_used} & Classifier variant that produced the verdict (MLP, Random Forest, or XGBoost). \\
+\hline
+\texttt{input\_type} & Input modality: pre-extracted CSV or raw packet capture. \\
+\hline
+\texttt{file\_name} & Uploaded file name, or null. \\
+\hline
+\texttt{result\_label} & Dominant predicted class for the submission. \\
+\hline
+\texttt{confidence} & Confidence of the dominant class (maximum calibrated softmax probability). \\
+\hline
+\texttt{classification\_mode} & Granularity of the run (binary or attack-family). \\
+\hline
+\texttt{probabilities} & Full per-class probability vector, stored as JSON. \\
+\hline
+\end{tabular}
+\end{center}
+\caption{Schema of the \texttt{analyses} table. Every column is derived result metadata; no raw traffic payload is stored, keeping the persistence tier consistent with FR-D5.}
+\label{tab:analyses_schema}
+\end{table}
+
 \subsection{Public Deployment}
 \label{subsec:public_deployment}
 
 \par The backend is packaged as a Docker image and deployed on Hugging Face Spaces, allowing the demo to be reached from any browser without the presenter's local machine being reachable. The React frontend is deployed separately on Vercel and communicates with the Spaces backend over HTTPS. For the local defence demonstration, the same backend process is run directly on the presenter's laptop and reached through the loopback address, with the Gradio tab serving as the fallback UI.
+
+\par Figure~\ref{fig:deployment_topology} shows the resulting runtime topology. Vercel delivers the built single-page application to the browser; at runtime the application fans out to the two decoupled backends of Section~\ref{subsec:auth_persistence}. The diagram makes the key property explicit: the inference path (browser~$\leftrightarrow$~Hugging Face Spaces) and the identity-and-history path (browser~$\leftrightarrow$~Supabase) share no server-side state and can fail or be replaced independently.
+
+\begin{figure}[htbp]
+    \centering
+    \resizebox{0.95\textwidth}{!}{%
+    \begin{tikzpicture}[
+        node distance=1.8cm and 2.2cm,
+        box/.style={
+            rectangle, rounded corners=4pt, draw=black!70, thick,
+            minimum width=3.2cm, minimum height=1.4cm, text width=3.4cm,
+            align=center, font=\small
+        },
+        client/.style={box, fill=gray!12},
+        edge/.style={box, fill=gray!6},
+        infer/.style={box, fill=green!10},
+        store/.style={box, fill=yellow!20},
+        arrow/.style={->, >=latex, thick, black!65},
+        biarrow/.style={<->, >=latex, thick, black!65},
+        lbl/.style={font=\scriptsize, black!60, align=center}
+    ]
+    % Client (top)
+    \node[client] (browser) {\textbf{Client browser}\\[2pt] NEURAL IDS\\ React SPA};
+
+    % Infrastructure row (bottom)
+    \node[infer, below=of browser]      (hf)     {\textbf{Hugging Face Spaces}\\[2pt] Docker container\\ FastAPI \texttt{/api/classify}\\ + Gradio UI\\ + model artefacts};
+    \node[edge, left=of hf]             (vercel) {\textbf{Vercel}\\[2pt] static CDN\\ serves the built\\ React SPA};
+    \node[store, right=of hf]           (supa)   {\textbf{Supabase}\\[2pt] Auth (JWT)\\ Postgres \texttt{analyses}\\ row-level security};
+
+    % Delivery of the SPA
+    \draw[arrow] (vercel.north) to[out=90, in=180]
+        node[lbl, above left, pos=0.6] {HTTPS\\ app bundle} (browser.west);
+
+    % Stateless inference channel
+    \draw[biarrow] (browser.south) -- node[lbl, right] {HTTPS \texttt{POST}\\ \texttt{/api/classify} (CORS)\\ $\rightarrow$ JSON verdict} (hf.north);
+
+    % Stateful identity + history channel
+    \draw[biarrow] (browser.east) to[out=0, in=90]
+        node[lbl, above right, pos=0.4] {HTTPS\\ auth + history\\ insert / select} (supa.north);
+
+    % Channel annotations
+    \node[lbl, below=0.15cm of hf, green!45!black] {\itshape stateless inference channel};
+    \node[lbl, below=0.15cm of supa, orange!60!black] {\itshape stateful identity \& history channel};
+
+    \end{tikzpicture}%
+    }
+    \caption{Runtime deployment topology of the serving subsystem. Vercel delivers the static React SPA (grey); at runtime the SPA drives two independent backends --- a \emph{stateless} inference service on Hugging Face Spaces (green) reached via \texttt{POST /api/classify}, and a \emph{stateful} Supabase project (yellow) for authentication and per-user history. The two channels share no server-side state, so inference never blocks on persistence and either tier can be replaced in isolation.}
+    \label{fig:deployment_topology}
+\end{figure}
 
 \section{Implementation Notes}
 \label{sec:implementation_details}
@@ -253,12 +342,12 @@ where $y_{i,k}$ is the one-hot ground-truth indicator for sample $i$ and class $
 \subsection{Determinism}
 \label{subsec:determinism}
 
-\par A single deterministic seed is broadcast to every random source: the numerical library, the deep-learning framework on CPU and on GPU, the framework's deterministic backend flags, and the dataset samplers. Both random-row split calls receive the same seed; both group-aware split steps receive the same seed; the temporal split is deterministic by construction. As a result, re-running the pipeline against the same source files produces metrics that match within a few thousandths of an F1 point --- the tolerance committed in NFR-3.
+\par A single deterministic seed is broadcast to every random source: the numerical library, the deep-learning framework on CPU and on GPU, the framework's deterministic backend flags, and the dataset samplers. Both random-row split calls receive the same seed; both group-aware split steps receive the same seed; the temporal split is deterministic by construction. As a result, re-running the pipeline against the same source files produces metrics that match within a few thousandths of an F1 point, the tolerance committed in NFR-3.
 
 \subsection{Logging and Observability}
 \label{subsec:logging}
 
-\par The pipeline prints concise progress lines at every phase: per-folder ingestion counts (raw $\to$ deduplicated $\to$ sampled), per-split row counts, missing-class warnings, per-epoch training and validation loss, and final per-class metrics. Plots --- training curves and row-normalised confusion matrices --- are rendered inline. The web application prints only its bind address on startup and any error message that surfaces during a request.
+\par The pipeline prints concise progress lines at every phase: per-folder ingestion counts (raw $\to$ deduplicated $\to$ sampled), per-split row counts, missing-class warnings, per-epoch training and validation loss, and final per-class metrics. Plots (training curves and row-normalised confusion matrices) are rendered inline. The web application prints only its bind address on startup and any error message that surfaces during a request.
 
 \subsection{Configuration Surface}
 \label{subsec:configuration}
@@ -281,10 +370,10 @@ where $y_{i,k}$ is the one-hot ground-truth indicator for sample $i$ and class $
 \par The training pipeline contains assertions and printed sanity checks at every transition. The most important ones are:
 
 \begin{itemize}
-    \item An assertion that the fine-grained label mapping covers every attack folder exactly once --- guards against a missing or duplicated entry.
-    \item An assertion during ingestion that no folder is unmapped --- guards against a new attack folder being silently dropped.
+    \item An assertion that the fine-grained label mapping covers every attack folder exactly once, which guards against a missing or duplicated entry.
+    \item An assertion during ingestion that no folder is unmapped, which guards against a new attack folder being silently dropped.
     \item For each split, a check that every fine-grained label appears at least once in the train partition; missing classes are flagged with a warning line.
-    \item Per-folder row counts (raw / deduplicated / sampled) are printed during ingestion --- a sudden mismatch between raw and deduplicated counts is a quick visual cue that something has changed in the source data.
+    \item Per-folder row counts (raw / deduplicated / sampled) are printed during ingestion; a sudden mismatch between raw and deduplicated counts is a quick visual cue that something has changed in the source data.
 \end{itemize}
 
 \subsection{Artefact Round-Trip Test}
@@ -335,7 +424,7 @@ where $y_{i,k}$ is the one-hot ground-truth indicator for sample $i$ and class $
 \subsection{Variant Selection at Startup}
 \label{subsec:variant_selection_runtime}
 
-\par On startup, the application performs the discovery probe described in Section~\ref{subsec:backend_gradio_fastapi} and populates the variant dropdown with every artefact triple found on disk. The default selection is the first variant returned by the probe. The variant defended as the headline result --- the temporal split at the binary granularity --- is the one used for the F1 evidence in Section~\ref{sec:f1_acceptance_evidence}; the dropdown additionally allows the same input to be re-classified under any other discovered variant for comparative inspection.
+\par On startup, the application performs the discovery probe described in Section~\ref{subsec:backend_gradio_fastapi} and populates the variant dropdown with every artefact triple found on disk. The default selection is the first variant returned by the probe. The variant defended as the headline result (the temporal split at the binary granularity) is the one used for the F1 evidence in Section~\ref{sec:f1_acceptance_evidence}; the dropdown additionally allows the same input to be re-classified under any other discovered variant for comparative inspection.
 
 \subsection{Request Lifecycle}
 \label{subsec:request_lifecycle}
@@ -347,7 +436,7 @@ where $y_{i,k}$ is the one-hot ground-truth indicator for sample $i$ and class $
 
 \par The F1 functional test specified in Section~\ref{subsec:f1_functional_test} was executed against the deployed serving subsystem using both the local Gradio interface and the NEURAL IDS React dashboard. Two pre-extracted feature CSVs with known ground-truth labels were submitted: \texttt{demo\_benign.csv} (normal browsing traffic captured on the demo machine and converted to CIC features) and \texttt{demo\_syn\_flood.csv} (a SYN-flood attack directed at a local target, converted via the same flow-extraction tool). Figure~\ref{fig:app_dashboard} shows the NEURAL IDS dashboard after all four acceptance runs have been completed, with the full analysis history visible in the main panel.
 
-\par The history confirms both halves of the acceptance criterion. For \texttt{demo\_syn\_flood.csv}, the binary temporal-split MLP labelled \textbf{every} flow (100\%) as \textbf{Attack} with a mean calibrated confidence of 99.6\%, and a subsequent run of the same file under the 8-class variant confirmed \textbf{DoS} as the dominant family --- both correct. For \texttt{demo\_benign.csv}, the binary MLP returned \textbf{Benign} on 98\% of flows (mean dominant-class confidence 71.9\%); the fraction of flows labelled Benign therefore exceeds the 95\% threshold defined in Section~\ref{subsec:f1_functional_test}, discharging the no-false-alarm half of the criterion. (Confidence values report the mean softmax probability of the dominant class after temperature scaling, not the fraction of flows in that class.)
+\par The history confirms both halves of the acceptance criterion. For \texttt{demo\_syn\_flood.csv}, the binary temporal-split MLP labelled \textbf{every} flow (100\%) as \textbf{Attack} with a mean calibrated confidence of 99.6\%, and a subsequent run of the same file under the 8-class variant confirmed \textbf{DoS} as the dominant family, both correct. For \texttt{demo\_benign.csv}, the binary MLP returned \textbf{Benign} on 98\% of flows (mean dominant-class confidence 71.9\%); the fraction of flows labelled Benign therefore exceeds the 95\% threshold defined in Section~\ref{subsec:f1_functional_test}, discharging the no-false-alarm half of the criterion. (Confidence values report the mean softmax probability of the dominant class after temperature scaling, not the fraction of flows in that class.)
 
 \begin{figure}[htbp]
     \centering
