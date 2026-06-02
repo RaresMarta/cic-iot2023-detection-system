@@ -13,25 +13,29 @@ MODELS_DIR.mkdir(exist_ok=True)
 # Data
 MAX_ROWS_PER_CLASS = 200_000
 
-# The 25 retained features after EDA-driven pruning of the 39 public CICIoT2023
-# columns: 12 near-zero-variance binary flags (ece, cwr, Telnet, SMTP, SSH, IRC,
-# DHCP, ARP, ICMP, IGMP, IPv, LLC) and 2 mathematically redundant continuous
-# features (Tot size ~ AVG, Variance ~ Std) are dropped. Order matches the
-# cached parquet and the fitted scaler/model input ordering.
+# Full 39-feature public CICIoT2023 column set. The notebook's EDA prunes this to
+# 25 (dropping 12 near-zero-variance flags + 2 redundant continuous features) at
+# run time; the trained model and the demo use that reduced 25-feature set, whose
+# exact ordering is persisted in models/feature_columns.joblib.
 X_COLUMNS = [
     'Header_Length', 'Protocol Type', 'Time_To_Live', 'Rate',
     'fin_flag_number', 'syn_flag_number', 'rst_flag_number',
-    'psh_flag_number', 'ack_flag_number', 'ack_count', 'syn_count',
-    'fin_count', 'rst_count', 'HTTP', 'HTTPS', 'DNS', 'TCP', 'UDP',
-    'Tot sum', 'Min', 'Max', 'AVG', 'Std', 'IAT', 'Number',
+    'psh_flag_number', 'ack_flag_number', 'ece_flag_number',
+    'cwr_flag_number', 'ack_count', 'syn_count', 'fin_count',
+    'rst_count', 'HTTP', 'HTTPS', 'DNS', 'Telnet', 'SMTP',
+    'SSH', 'IRC', 'TCP', 'UDP', 'DHCP', 'ARP', 'ICMP', 'IGMP',
+    'IPv', 'LLC', 'Tot sum', 'Min', 'Max', 'AVG', 'Std',
+    'Tot size', 'IAT', 'Number', 'Variance',
 ]
 Y_COLUMN = 'Label'
-N_FEATURES = len(X_COLUMNS)  # 25 after feature selection
+N_FEATURES = len(X_COLUMNS)  # 39; reduced to 25 after feature selection in notebook
 
 FLAG_COLUMNS = [
     'fin_flag_number', 'syn_flag_number', 'rst_flag_number',
-    'psh_flag_number', 'ack_flag_number', 'HTTP', 'HTTPS', 'DNS',
-    'TCP', 'UDP',
+    'psh_flag_number', 'ack_flag_number', 'ece_flag_number',
+    'cwr_flag_number', 'HTTP', 'HTTPS', 'DNS', 'Telnet', 'SMTP',
+    'SSH', 'IRC', 'TCP', 'UDP', 'DHCP', 'ARP', 'ICMP', 'IGMP',
+    'IPv', 'LLC',
 ]
 LOG_COLUMNS = [c for c in X_COLUMNS if c not in FLAG_COLUMNS]
 
