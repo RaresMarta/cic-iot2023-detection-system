@@ -10,27 +10,20 @@
 
 \begin{figure}[htbp]
     \centering
-    \includegraphics[width=0.88\textwidth]{figures/ingest_waterfall.png}
+    \includegraphics[width=0.70\textwidth]{figures/ingest_waterfall.png}
     \caption{CICIoT2023 data reduction waterfall. Of 46{,}776{,}700 raw records, 53.7\% are exact duplicates. After deduplication, 79.4\% of the 21{,}636{,}191 unique rows are discarded by the 200{,}000-row-per-class sampling cap, yielding a 4{,}448{,}202-row working set used for all splits and granularities.}
     \label{fig:ingest_waterfall}
 \end{figure}
 
 \par Two observations stand out. First, the duplicate fraction is unusually high: more than half of the raw records are byte-identical to another row in the same folder. This is a known property of the dataset and has been reported by other authors \cite{CICIoT2023}. Deduplicating before sampling is therefore critical: without this step, each sampled row would carry implicit near-duplicate neighbours, inflating test accuracy to an optimistic and meaningless level. Second, after deduplication the majority class (DDoS-ICMP\_Flood) retains over 200{,}000 unique rows before the cap is applied, while the rarest web-based attack variants (XSS, Backdoor\_Malware, CommandInjection) provide fewer than 5{,}000 unique rows each, well below the cap and therefore sampled in their entirety.
 
-\par Figures~\ref{fig:dist_class_bar} and~\ref{fig:dist_8class_pie} show the class distribution after deduplication and sampling at the fine-grained (34-class) and attack-family (8-class) levels respectively.
+\par Figure~\ref{fig:dist_class_bar} shows the class distribution after deduplication and sampling at the fine-grained 34-class level. Grouped into the eight attack families, the same working set is dominated by DDoS at 46.1\%, followed by DoS (15.1\%), Mirai (13.5\%), and Reconnaissance (11.5\%), with Benign at only 4.5\% and the web-based family a thin sliver below 1\%, which reflects the original dataset imbalance rather than the sampling cap.
 
 \begin{figure}[htbp]
     \centering
-    \includegraphics[width=0.82\textwidth, height=0.80\textheight, keepaspectratio]{figures/dist_class_bar.png}
+    \includegraphics[width=0.62\textwidth]{figures/dist_class_bar.png}
     \caption{Final class distribution across the 34 fine-grained labels after deduplication and the 200{,}000-row-per-class cap. The vertical dashed line marks the cap. Classes at or near the cap are the large volumetric attack families (DDoS, Mirai, DoS, Spoofing). Web-based attacks (XSS, Backdoor\_Malware, CommandInjection) fall far below the cap, limited by the small number of unique records available in the raw data.}
     \label{fig:dist_class_bar}
-\end{figure}
-
-\begin{figure}[htbp]
-    \centering
-    \includegraphics[width=0.65\textwidth]{figures/dist_8class_pie.png}
-    \caption{Sampled rows by attack family (8-class grouping). DDoS dominates at 46.1\% of the working set, followed by DoS (15.1\%), Mirai (13.5\%), and Reconnaissance (11.5\%). Benign traffic represents only 4.5\%, and the Web-based family is a thin sliver below 1\% --- a reflection of the original dataset imbalance, not of the sampling cap.}
-    \label{fig:dist_8class_pie}
 \end{figure}
 
 \section{Exploratory Data Analysis}
@@ -45,7 +38,7 @@
 
 \begin{figure}[htbp]
     \centering
-    \includegraphics[width=0.88\textwidth, height=0.75\textheight, keepaspectratio]{figures/pearson_corr.png}
+    \includegraphics[width=0.64\textwidth]{figures/pearson_corr.png}
     \caption{Pearson correlation matrix of the 18 continuous CICIoT2023 features on a 50{,}000-row post-log1p sample. Two pairs exhibit near-perfect correlation: \texttt{AVG} and \texttt{Tot\_size} ($r = 1.00$) and \texttt{Std} and \texttt{Variance} ($r = 1.00$). Both redundant features are retained because the scaler absorbs linear collinearity and the MLP is not harmed by it; the observation nevertheless confirms the EDA finding documented in the project.}
     \label{fig:pearson_corr}
 \end{figure}
@@ -59,7 +52,7 @@
 
 \begin{figure}[htbp]
     \centering
-    \includegraphics[width=0.88\textwidth]{figures/flag_variances.png}
+    \includegraphics[width=0.64\textwidth]{figures/flag_variances.png}
     \caption{Empirical variance of the 21 binary flag and protocol-indicator features. Features below the 0.01 threshold (dashed red line) are near-constant in the sampled dataset and carry negligible discriminative information. The 14 sub-threshold features (DNS, LLC, IPv, ARP, SSH, DHCP, ECE, CWR, IGMP, IRC, SMTP, Telnet, and others) are dropped from the working feature set, reducing the input dimensionality from 39 to 25.}
     \label{fig:flag_variances}
 \end{figure}
@@ -73,7 +66,7 @@
 
 \begin{figure}[htbp]
     \centering
-    \includegraphics[width=0.88\textwidth]{figures/feature_importance.png}
+    \includegraphics[width=0.64\textwidth]{figures/feature_importance.png}
     \caption{Top 20 features by average permutation importance (drop in macro-F1 under feature shuffling) across the Random Forest and XGBoost baselines (8-class, temporal split). The packet-count feature \texttt{Number} dominates by a wide margin, followed by the \texttt{HTTPS} protocol indicator, \texttt{Header\_Length}, and the packet-length statistics \texttt{Min} and \texttt{Max}. The long low-importance tail confirms that the pruned 25-feature set carries little redundant signal.}
     \label{fig:feature_importance}
 \end{figure}
@@ -87,7 +80,7 @@
 
 \begin{figure}[htbp]
     \centering
-    \includegraphics[width=0.92\textwidth]{figures/training_curves.png}
+    \includegraphics[width=0.80\textwidth]{figures/training_curves.png}
     \caption{MLP training and validation loss (class-weighted cross-entropy) on the temporal split. Left: binary (2-class) granularity, reaching its best validation loss around epoch 7 and early-stopping at epoch 12. Right: 8-class granularity, best around epoch 4 and early-stopping at epoch 9. In both cases early stopping triggers at patience=5 after the best validation checkpoint is reached. Note that in the 8-class case the validation loss is consistently lower than the training loss: this inversion is expected under class-weighted cross-entropy when the minority-class weights impose a steeper penalty on training-set errors than on the validation set.}
     \label{fig:training_curves}
 \end{figure}
@@ -101,7 +94,7 @@
 
 \begin{figure}[htbp]
     \centering
-    \includegraphics[width=0.65\textwidth]{figures/confusion_2class.png}
+    \includegraphics[width=0.55\textwidth]{figures/confusion_2class.png}
     \caption{Row-normalised confusion matrix (per-class recall) for the MLP on the temporal-split 2-class test set. Diagonal values are recall: Attack recall = 0.85, Benign recall = 0.99.}
     \label{fig:confusion_2class}
 \end{figure}
@@ -115,7 +108,7 @@
 
 \begin{figure}[htbp]
     \centering
-    \includegraphics[width=0.72\textwidth]{figures/confusion_8class.png}
+    \includegraphics[width=0.62\textwidth]{figures/confusion_8class.png}
     \caption{Row-normalised confusion matrix (per-class recall) for the MLP on the temporal-split 8-class test set. Rows represent true labels; columns represent predicted labels. Diagonal values are per-class recall. The Mirai family achieves near-perfect detection (0.99); DDoS and DoS are frequently confused with each other; Spoofing and Recon bleed substantially into Benign.}
     \label{fig:confusion_8class}
 \end{figure}
@@ -128,7 +121,7 @@
 \hline
 \textbf{Class} & \textbf{Recall} & \textbf{Main misclassification} \\
 \hline
-\hline Mirai & 0.99 & ---(near-perfect) \\
+\hline Mirai & 0.99 & None (near-perfect) \\
 \hline Benign & 0.82 & small leakage to multiple classes (7\% Web) \\
 \hline DoS & 0.73 & 26\% predicted as DDoS \\
 \hline DDoS & 0.69 & 31\% predicted as DoS \\
@@ -143,40 +136,20 @@
 \label{tab:recall_8class}
 \end{table}
 
-\par Several patterns deserve individual attention.
+\par Several patterns deserve attention. Mirai stands apart, reaching 0.99 recall, the highest of any class, because the CICIoT2023 variants (Mirai-greith, Mirai-greip, Mirai-udpplain) all generate high-rate, fixed-payload floods over specific protocols and so produce an unusually homogeneous fingerprint that the model separates easily. The DDoS and DoS families, by contrast, are confused in both directions: both are volumetric floods differing mainly in the number of coordinated source hosts, and at the packet-feature level they share high rates, short inter-arrival times, and dominant SYN or UDP patterns, so the 31\% DDoS-to-DoS and 26\% DoS-to-DDoS confusion rates are unsurprising and match published results on similar datasets \cite{Lansky2021}. An operational IDS can tolerate this confusion, since both families call for the same response (rate-limiting and upstream filtering) and neither bleeds significantly into Benign.
 
-\par \textbf{Mirai stands alone.} The Mirai botnet family achieves 0.99 recall, the highest of any class. Mirai traffic is structurally distinctive: the variants in CICIoT2023 (Mirai-greith, Mirai-greip, Mirai-udpplain) all generate high-rate, fixed-payload floods over specific protocols, producing an unusually homogeneous feature fingerprint. The model has little difficulty separating Mirai from other families.
-
-\par \textbf{DDoS / DoS confusion is bidirectional.} DDoS and DoS attacks are volumetric floods that differ principally in the number of coordinated source hosts. At the packet-feature level they produce similar statistics: high rate, short inter-arrival times, and dominant SYN or UDP patterns. The 31\% DDoS$\to$DoS and 26\% DoS$\to$DDoS confusion rates are therefore not surprising and are consistent with published results on similar datasets \cite{Lansky2021}. An operational IDS can treat this confusion as acceptable because both families are correctly identified as volumetric attacks that require the same response (rate-limiting, upstream filtering). Neither class significantly bleeds into Benign.
-
-\par \textbf{Spoofing bleeds into Benign.} The Spoofing class (ARP and DNS spoofing) is among the weakest (tied with BruteForce at 0.46 recall), with 46\% of its flows predicted as Benign. ARP and DNS queries are protocol-level operations that legitimate devices also perform; the distinguishing factor is context and rate, which the fixed-size packet-window feature set captures imperfectly. This is consistent with the known limitation of transport-layer features for detecting application-layer or control-plane attacks.
-
-\par \textbf{Recon and Web are partially confused with each other.} Reconnaissance flows (port scans, host discovery) and Web attack flows (HTTP-based injections) both involve application-layer payloads that are invisible to the feature set. Recon sometimes generates probe requests that look superficially similar to malformed web requests, explaining the 19\% Recon$\to$Web leakage. The 15\% Web$\to$Recon confusion reflects the same symmetry. Both classes also bleed into Benign, corroborating the thesis that transport-layer features are insufficient for precise separation of application-layer attack categories.
+\par The weaker classes are the application-layer and control-plane attacks. Spoofing (ARP and DNS spoofing, tied with BruteForce at 0.46 recall) has 46\% of its flows predicted Benign, because ARP and DNS queries are operations that legitimate devices also perform and the distinguishing signal is context and rate, which the fixed-size packet window captures imperfectly. Reconnaissance and Web attacks are partly confused with each other: port scans and host discovery on one side and HTTP-based injections on the other both rely on application-layer payloads invisible to the feature set, so probe requests that resemble malformed web requests produce the 19\% Recon-to-Web and 15\% Web-to-Recon leakage, and both also bleed into Benign. These weaknesses corroborate the central point that a transport-layer feature set cannot cleanly separate application-layer attack categories.
 
 \section{Model Comparison}
 \label{sec:model_comparison}
 
-\par The same temporal split and evaluation protocol were applied to a Random Forest and an XGBoost baseline. Figures~\ref{fig:weighted_f1_splits} and~\ref{fig:macro_f1_splits} compare Weighted-F1 and Macro-F1 across the three data partitions. Figure~\ref{fig:model_comparison} shows accuracy at each partition.
+\par The same temporal split and evaluation protocol were applied to a Random Forest and an XGBoost baseline. Figure~\ref{fig:weighted_f1_splits} compares weighted F1 across the three data partitions for all three models; accuracy and macro F1 follow the same train-to-test pattern and are reported in Table~\ref{tab:model_comparison_table}.
 
 \begin{figure}[htbp]
     \centering
-    \includegraphics[width=0.82\textwidth]{figures/weighted_f1_splits.png}
-    \caption{Weighted F1 across train / validation / test partitions for the three models on the temporal split (8-class granularity). All three models exhibit stable degradation from train to test. The tree ensembles (RF, XGBoost) achieve higher test weighted F1 ($\approx$0.771) than the MLP ($\approx$0.733), a gap of roughly 4 percentage points.}
+    \includegraphics[width=0.68\textwidth]{figures/weighted_f1_splits.png}
+    \caption{Weighted F1 across train, validation, and test partitions for the three models on the temporal split (8-class granularity). All three degrade gently from train to test, with no sharp validation-to-test cliff, which indicates healthy generalisation. The tree ensembles reach a higher test weighted F1 ($\approx$0.771) than the MLP ($\approx$0.733), a gap of roughly 4 percentage points. The corresponding accuracy (MLP 0.698, RF 0.750, XGBoost 0.745) and macro F1 (MLP 0.534, trees $\approx$0.58) appear in Table~\ref{tab:model_comparison_table}.}
     \label{fig:weighted_f1_splits}
-\end{figure}
-
-\begin{figure}[htbp]
-    \centering
-    \includegraphics[width=0.82\textwidth]{figures/macro_f1_splits.png}
-    \caption{Macro F1 across train / validation / test partitions (8-class granularity). Macro F1 (which weights all classes equally regardless of frequency) is substantially lower than Weighted F1 for all models, revealing that minority-class detection remains challenging. All three models decline monotonically from train to test, and the MLP's macro F1 ($\approx$0.53 on test) trails the tree ensembles ($\approx$0.58), confirming that the deep model's disadvantage is concentrated in the rare attack families.}
-    \label{fig:macro_f1_splits}
-\end{figure}
-
-\begin{figure}[htbp]
-    \centering
-    \includegraphics[width=0.88\textwidth]{figures/model_comparison.png}
-    \caption{Accuracy at train, validation, and test partitions (8-class granularity). The MLP (0.698 test accuracy) lags the tree ensembles (RF: 0.750, XGBoost: 0.745) by roughly 5 percentage points. All models generalise stably, with a test-to-train accuracy drop below 8 percentage points.}
-    \label{fig:model_comparison}
 \end{figure}
 
 \par Table~\ref{tab:model_comparison_table} consolidates the key metrics.
@@ -199,14 +172,6 @@
 
 \par A few observations follow from Table~\ref{tab:model_comparison_table}. First, no model reaches a weighted F1 of 0.85 at the 8-class granularity: the tree ensembles top out at $\approx$0.771 and the MLP at $\approx$0.733. The 0.85 acceptance bar (NFR-2) is instead met comfortably on the binary task (Section~\ref{sec:binary_results}), where weighted F1 reaches $\approx$0.90 for the MLP and $\approx$0.92 for the tree ensembles; the 8-class attack-family task is reported as the harder secondary objective, and its shortfall follows directly from the transport-layer feature set's inability to separate application-layer attack families (Section~\ref{sec:discussion}), not from a modelling defect. Second, the tree-based models outperform the MLP by approximately 4 percentage points on weighted F1 and 5 on both accuracy and macro F1. This result is consistent with the growing body of evidence that gradient-boosted trees and random forests are competitive (and often superior) to MLPs on tabular tasks when the sample count is in the low millions \cite{Kadra2021}. The MLP remains the primary model for the demonstration system because its inference is implemented in a single portable PyTorch call, without the additional sklearn dependency; the tree baselines serve their designed role of confirming that the deep model is not strictly worse. Third, the macro F1 gap (MLP: 0.534 vs tree: 0.58) is comparable to the weighted F1 gap, and the low macro F1 of all three models confirms that the difficulty is concentrated in the minority classes (particularly Spoofing, Recon, BruteForce, and Web), while performance on the dominant DDoS and Mirai families (which drive weighted F1) is far stronger.
 
-\par Figure~\ref{fig:generalization} provides a complementary view of generalisation quality.
-
-\begin{figure}[htbp]
-    \centering
-    \includegraphics[width=0.82\textwidth]{figures/generalization.png}
-    \caption{Train / validation / test accuracy side by side for each model. The progressively smaller bars from left to right within each model group indicate healthy generalisation: no model shows a sharp cliff between validation and test, suggesting that the temporal test partition is not dramatically more different from the training distribution than the validation partition.}
-    \label{fig:generalization}
-\end{figure}
 
 \section{Confidence Calibration}
 \label{sec:calibration}
@@ -215,7 +180,7 @@
 
 \begin{figure}[htbp]
     \centering
-    \includegraphics[width=0.6\textwidth]{figures/reliability_8class.png}
+    \includegraphics[width=0.52\textwidth]{figures/reliability_8class.png}
     \caption{Reliability diagram for the MLP on the temporal-split 8-class test set, before and after temperature scaling. Points below the diagonal indicate overconfidence. Temperature scaling ($T = 1.16$, fitted on the validation set) pulls the curve towards the diagonal, reducing ECE from 0.101 to 0.089.}
     \label{fig:reliability_8class}
 \end{figure}
@@ -227,6 +192,6 @@
 
 \par The temporal split provides a meaningfully harder test than a random row split would, because the test captures were recorded later in each attack session and may reflect slightly evolved traffic patterns. Despite this, all three models generalise well, and the small train$\to$test accuracy drops (below 8 percentage points) suggest that the CICIoT2023 attack sessions are reasonably stationary within each folder, a consequence of the controlled laboratory setting.
 
-\par The principal failure modes are the ones anticipated by the design. Application-layer attacks (Web, Recon, Spoofing) are poorly detected because the 25-feature transport-layer representation cannot see the payload content that distinguishes a SQL injection probe from a legitimate HTTP request. The DDoS/DoS confusion is an artefact of the feature space collapsing two functionally distinct (but statistically similar) attack families into overlapping regions. These are not model defects: they are properties of the feature set inherited from the dataset's extraction methodology.
+\par The principal failure modes are the ones the design anticipated, and Section~\ref{sec:multiclass_results} traced each to the feature set rather than the model: the application-layer attacks (Web, Recon, Spoofing) leave no signal in a transport-layer representation, and the statistically similar DDoS and DoS floods overlap in feature space. Both are properties of the dataset's extraction methodology, not model defects.
 
 \par NFR-2 (at least 0.85 weighted F1 on the temporal \emph{binary} test set) is satisfied by all three models, which reach $\approx$0.90 (MLP) to $\approx$0.92 (tree ensembles). At the 8-class granularity no model reaches 0.85 (the best attain $\approx$0.77), which the design treats as the honest ceiling imposed by a transport-layer feature set rather than a target failure, in keeping with the secondary status assigned to the 8-class task in NFR-2. NFR-8 (honest reporting) is respected by making the temporal split the headline result and by reporting per-class metrics rather than only aggregate numbers, so that the minority-class weakness is visible without requiring the reader to look past a high aggregate figure.

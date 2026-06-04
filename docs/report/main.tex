@@ -25,6 +25,13 @@
 % Allow LaTeX more flexibility breaking long paragraphs to avoid overfull hboxes.
 \emergencystretch=2em
 
+% Tighten the vertical space around floats and captions (body line spacing is unchanged).
+\setlength{\textfloatsep}{8pt plus 2pt minus 2pt}
+\setlength{\floatsep}{8pt plus 2pt minus 2pt}
+\setlength{\intextsep}{8pt plus 2pt minus 2pt}
+\setlength{\abovecaptionskip}{4pt}
+\setlength{\belowcaptionskip}{2pt}
+
 \begin{document}
 
 \specialization{Artificial Intelligence}	
@@ -47,9 +54,9 @@ This thesis designs, implements, and evaluates a real-time intrusion detection s
 
 The system is built around a two-hidden-layer Multi-Layer Perceptron (MLP) trained at binary and 8-class (attack-family) granularities on a temporally ordered train/validation/test split, so that evaluation reflects deployment conditions rather than optimistic random sampling. The MLP is compared against Random Forest and XGBoost baselines under identical conditions. On the binary task all three models exceed the 0.85 weighted-F1 target, with the tree ensembles reaching $\approx$0.92 and the MLP $\approx$0.90; on the harder 8-class task the trees lead at $\approx$0.77 and the MLP attains $\approx$0.73, none reaching 0.85, a shortfall traced to the limits of the public transport-layer features for separating application-layer attack families. Feature analysis identifies the per-flow packet count, the HTTPS/HTTP indicators, and header length as the most discriminative features, and prunes 14 of the 39 near-zero-variance CICIoT2023 features to leave a 25-feature model. Temperature scaling calibrates the MLP's softmax confidences.
 
-The practical component is a web demonstration, NEURAL IDS, pairing a FastAPI backend with a React dashboard that accepts pre-extracted feature CSVs or raw packet captures, classifies flows in under 10 milliseconds, and displays confidence scores and per-class probability breakdowns. It correctly flags a synthetic SYN-flood capture as an attack (every flow flagged as Attack, mean calibrated confidence 99.6\%) and classifies benign browsing as Benign (98\% of flows), validating the core F1 functionality required by the project specification.
+The practical component is a web demonstration, NEURAL IDS, pairing a FastAPI backend with a React dashboard that accepts pre-extracted feature CSVs or raw packet captures, classifies flows in under 10 milliseconds, and displays confidence scores and per-class probability breakdowns. It correctly flags a synthetic SYN-flood capture as an attack (every flow flagged as Attack, mean calibrated confidence 99.6\%) and classifies benign browsing as Benign (98\% of flows), validating the core classification functionality required by the project specification.
 
-\tableofcontents
+{\setstretch{1.0}\tableofcontents}
 
 
 \newpage
@@ -65,7 +72,13 @@ The practical component is a web demonstration, NEURAL IDS, pairing a FastAPI ba
 
 \input{chapters/chapter6_conclusions}
 %\addcontentsline{toc}{chapter}{Conclusions}
+
+\par % close the final body paragraph under 1.5 spacing before the single-spaced bibliography group
+\begingroup
+\setstretch{1.0}
+\small
 \bibliographystyle{plain}
 \bibliography{references}
+\endgroup
 
 \end{document}

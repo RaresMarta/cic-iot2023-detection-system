@@ -83,14 +83,7 @@
 \subsection{Key Challenges}
 \label{subsec:ids_challenges}
 
-\par Deep learning models for IDS must operate under several challenges that frequently undermine the transfer from benchmark performance to real-world deployment:
-
-\begin{itemize}
-    \item \textbf{Class imbalance}: In most network environments, benign traffic vastly outnumbers attack traffic. Benchmark datasets reflect this: for example, in CICIoT2023, DDoS attacks account for approximately 73\% of all records, while web-based attacks represent less than 0.1\% \cite{CICIoT2023}. This imbalance can cause models to favor the majority class, making accuracy a misleading metric and requiring techniques such as weighted loss functions or stratified sampling.
-    \item \textbf{Concept drift}: Network traffic distributions change over time due to evolving user behavior, new applications, updated protocols, and shifting attacker strategies. A model trained on a static dataset may degrade in production as the traffic it encounters diverges from its training distribution \cite{Andresini2021}.
-    \item \textbf{Dataset realism}: Most benchmark datasets are generated in controlled testbed environments rather than captured from production networks. While testbeds allow for precise labeling of attacks, they may not fully capture the diversity and complexity of real-world traffic, including encrypted communications, multi-stage attacks, and the noise inherent in large-scale networks \cite{Lansky2021}.
-    \item \textbf{Deployment constraints}: A practical IDS must meet latency and throughput requirements, integrate with existing security infrastructure, and remain maintainable over time. These operational aspects are frequently underreported in the research literature, which tends to focus on classification accuracy on static benchmarks \cite{Apruzzese2023}.
-\end{itemize}
+\par Deep learning models for IDS operate under several challenges that frequently undermine the transfer from benchmark performance to deployment. The first is class imbalance: benign traffic usually outnumbers attack traffic, and benchmark datasets reflect this. In CICIoT2023 DDoS attacks account for roughly 73\% of all records while web-based attacks represent less than 0.1\% \cite{CICIoT2023}, which can push a model to favour the majority class and makes accuracy a misleading metric unless weighted loss functions or stratified sampling are used. The second is concept drift: traffic distributions change over time as user behaviour, applications, protocols, and attacker strategies evolve, so a model trained on a static dataset may degrade once the traffic it sees diverges from its training distribution \cite{Andresini2021}. The third is dataset realism, since most benchmarks are generated in controlled testbeds rather than captured from production networks; testbeds allow precise labelling but may not capture encrypted communications, multi-stage attacks, or the noise of large-scale networks \cite{Lansky2021}. The fourth is the set of deployment constraints, latency and throughput budgets, integration with existing infrastructure, and long-term maintainability, which the literature tends to underreport in favour of accuracy on static benchmarks \cite{Apruzzese2023}.
 
 
 \section{Deep Learning for Network Intrusion Detection}
@@ -124,54 +117,14 @@ where $\mathbf{h}_L$ is the output of the last hidden layer and $\hat{y} \in (0,
 \end{equation}
 using backpropagation and an optimizer such as Adam \cite{Vinayakumar2019}.
 
-\par MLPs are particularly well suited for flow-level intrusion detection for several reasons:
+\par MLPs are well suited to flow-level intrusion detection. Network flow features form fixed-length numerical vectors, exactly the input format MLPs expect, and unlike CNNs (which assume spatial structure) or RNNs (which assume sequential structure) an MLP makes no structural assumption about the input, which fits independent flow records with heterogeneous features \cite{Kadra2021}. Inference is a sequence of matrix multiplications that modern hardware executes quickly, so a small MLP can process tens of thousands of flows per second on a single CPU core, which matters for low-latency detection \cite{Vinayakumar2019}. Well-regularised MLPs are also competitive on tabular data: Kadra et al.\ showed that an MLP with a tuned combination of dropout, weight decay, and batch normalisation outperformed both XGBoost and specialised architectures such as TabNet on nearly half of the 40 datasets they evaluated \cite{Kadra2021}. In IDS research MLPs routinely reach 95--99\% accuracy on standard benchmarks, which makes them a competitive baseline against which to measure more complex architectures \cite{Vinayakumar2019, Ferrag2020}.
 
-\begin{itemize}
-    \item \textbf{Native fit for tabular data}: Network flow features form fixed-length numerical vectors, exactly the input format MLPs are designed for. Unlike CNNs (which assume spatial structure) or RNNs (which assume sequential structure), MLPs make no structural assumptions about the input, which is appropriate when each sample is an independent flow record with heterogeneous features \cite{Kadra2021}.
-    \item \textbf{Fast inference}: MLP inference consists of a sequence of matrix multiplications, which are highly optimized on modern hardware. This makes MLPs particularly suitable for real-time IDS, where low latency is critical. A small MLP can process tens of thousands of flows per second on a single CPU core \cite{Vinayakumar2019}.
-    \item \textbf{Competitive performance on tabular tasks}: Recent research has shown that well-regularized MLPs are competitive with both tree-based models and more complex neural architectures on tabular classification tasks. Kadra et al.\ demonstrated that an MLP with a carefully tuned combination of regularization techniques (dropout, weight decay, batch normalization) outperformed both XGBoost and specialized architectures such as TabNet on nearly half of the 40 datasets evaluated \cite{Kadra2021}.
-    \item \textbf{Strong baseline}: In IDS research, MLPs consistently achieve 95--99\% accuracy on standard benchmarks, making them an honest and competitive baseline against which to measure more complex architectures \cite{Vinayakumar2019, Ferrag2020}.
-\end{itemize}
-
-\par Key training considerations for MLP-based IDS include:
-
-\begin{itemize}
-    \item \textbf{Class imbalance handling}: Weighted loss functions assign higher weight to minority (attack) classes in the cross-entropy loss. Alternatively, oversampling techniques such as SMOTE can be used to generate synthetic minority samples, or focal loss can be applied to down-weight well-classified examples and focus training on hard cases.
-    \item \textbf{Regularization}: Dropout (randomly zeroing neuron outputs during training with a probability typically between 0.2 and 0.5) prevents co-adaptation of neurons. Weight decay (L2 regularization) penalizes large weights. Early stopping monitors validation loss and halts training when it begins to increase.
-    \item \textbf{Feature scaling}: Network flow features have vastly different scales (e.g., packet counts vs.\ flow durations in microseconds). Standard normalization (fitting a scaler on the training set and applying it to validation and test sets) is essential for stable gradient-based optimization.
-\end{itemize}
+\par Training an MLP for IDS turns on a few standard choices. Class imbalance is handled by weighting the minority (attack) classes more heavily in the cross-entropy loss, or by oversampling methods such as SMOTE, or by focal loss that down-weights easy examples. Regularisation combines dropout (zeroing neuron outputs during training with probability typically between 0.2 and 0.5), weight decay, and early stopping on the validation loss. Feature scaling is essential because flow features span very different ranges (packet counts versus flow durations in microseconds), so a scaler is fitted on the training set and applied unchanged to the validation and test sets.
 
 \subsection{Other Deep Learning Architectures for IDS}
 \label{subsec:other_architectures}
 
-\par Beyond MLPs, several other deep learning architectures have been applied to intrusion detection:
-
-\begin{itemize}
-    \item \textbf{Convolutional Neural Networks (CNNs)}: CNNs exploit local correlations by applying convolutions to reshaped tabular features, treating them as one-dimensional or two-dimensional grids. Convolutions can extract local patterns that correspond to protocol-specific or timing-related signatures of attacks \cite{Vinayakumar2018}.
-    \item \textbf{Recurrent Neural Networks (RNNs/LSTMs)}: LSTM-based IDS capture temporal dependencies in sequential traffic data, which is particularly useful in industrial or cyber-physical system settings where context over time is critical \cite{Kim2020}.
-    \item \textbf{Autoencoders}: Autoencoders learn to reconstruct their inputs through a bottleneck latent representation. When trained only on benign traffic, the reconstruction error serves as an anomaly score: flows with unusually high error are flagged as attacks. This unsupervised approach does not require labeled attack data, but depends heavily on threshold selection and training data quality \cite{Mirsky2018}.
-    \item \textbf{Transformers}: Transformers rely on self-attention to model global relationships among features. In tabular IDS adaptations, each feature can be treated as a token and embedded into a vector space. The key advantage is the ability to model global feature interactions rather than relying on fixed local receptive fields. However, transformer models are typically supervised, requiring labeled attack data, and can be compute-intensive \cite{Wu2022}.
-\end{itemize}
-
-\par Table \ref{tab:paradigm_comparison} summarizes the key differences between supervised and unsupervised deep learning paradigms for IDS.
-
-\begin{table}[htbp]
-\begin{center}
-\begin{tabular}{|p{100pt}|p{110pt}|p{110pt}|}
-\hline
-\textbf{Aspect} & \textbf{Unsupervised / Hybrid} & \textbf{Supervised} \\
-\hline
-\hline Label requirement & Low--Medium & High \\
-\hline Zero-day sensitivity & Higher potential & Typically lower \\
-\hline Calibration effort & High (thresholding) & Medium \\
-\hline Benchmark performance & Medium--High & High \\
-\hline Inference speed & Fast & Varies \\
-\hline
-\end{tabular}
-\end{center}
-\caption{Qualitative comparison of unsupervised/hybrid and supervised DL-IDS paradigms.}
-\label{tab:paradigm_comparison}
-\end{table}
+\par Several other architectures have been applied to intrusion detection. Convolutional networks reshape tabular features into one- or two-dimensional grids and use convolutions to extract local patterns tied to protocol-specific or timing signatures \cite{Vinayakumar2018}. Recurrent networks with LSTM units capture temporal dependencies in sequential traffic, which helps in industrial or cyber-physical settings where context over time matters \cite{Kim2020}. Autoencoders learn to reconstruct their input through a bottleneck and, when trained only on benign traffic, use the reconstruction error as an anomaly score; this needs no labelled attacks but depends heavily on the chosen threshold and on training-data quality \cite{Mirsky2018}. Transformers use self-attention to model global relationships among features, treating each feature as a token, but they are usually supervised and more compute-intensive than the alternatives \cite{Wu2022}. Compared with these, the supervised MLP used in this thesis needs labelled data and is less sensitive to genuinely novel attacks, but it trains and serves quickly and calibrates more easily than threshold-based anomaly detectors.
 
 
 \section{The CICIoT2023 Dataset}
@@ -216,31 +169,14 @@ using backpropagation and an optimizer such as Adam \cite{Vinayakumar2019}.
 \subsection{Feature Set}
 \label{subsec:features}
 
-\par The original CICIoT2023 paper describes a 46-feature representation produced by the DPKT-based extractor used during dataset construction. The features can be grouped as follows:
-
-\begin{itemize}
-    \item \textbf{Flow timing} (3 features): flow duration, time-to-live (TTL), and inter-arrival time with the prior packet.
-    \item \textbf{Rate and throughput} (3 features): overall packet transmission rate, source rate, and destination rate.
-    \item \textbf{Header and protocol} (2 features): header length and protocol type (IP, UDP, TCP, IGMP, ICMP).
-    \item \textbf{TCP flag features} (7 features): binary indicators for FIN, SYN, RST, PSH, ACK, ECE, and CWR flags.
-    \item \textbf{Packet count features} (5 features): counts of ACK, SYN, FIN, URG, and RST packets.
-    \item \textbf{Protocol indicator features} (14 binary features): binary indicators for HTTP, HTTPS, DNS, Telnet, SMTP, SSH, IRC, TCP, UDP, DHCP, ARP, ICMP, IPv, and LLC.
-    \item \textbf{Packet length statistics} (6 features): total sum, minimum, maximum, average, standard deviation, and individual packet length.
-    \item \textbf{Aggregate statistical features} (6 features): packet count in flow, magnitude, radius, covariance, variance, and weight, derived from combined incoming and outgoing packet statistics.
-\end{itemize}
+\par The original CICIoT2023 paper describes a 46-feature representation produced by the DPKT-based extractor used during dataset construction. These features fall into eight groups: three flow-timing features (flow duration, time-to-live, and inter-arrival time with the prior packet); three rate and throughput features (overall, source, and destination packet rates); two header and protocol features (header length and protocol type); seven binary TCP flag indicators (FIN, SYN, RST, PSH, ACK, ECE, CWR); five packet-count features (ACK, SYN, FIN, URG, RST counts); fourteen binary protocol indicators (HTTP, HTTPS, DNS, Telnet, SMTP, SSH, IRC, TCP, UDP, DHCP, ARP, ICMP, IPv, LLC); six packet-length statistics (sum, minimum, maximum, average, standard deviation, and individual length); and six aggregate statistics (packet count in flow, magnitude, radius, covariance, variance, and weight) derived from combined incoming and outgoing packet statistics.
 
 \par At the time of writing, the publicly available CSV release distributed by the Canadian Institute for Cybersecurity contains a \textbf{39-feature subset} of the 46 features described in the paper. Specifically, the public CSV omits the source and destination rate features, the URG packet count, and four of the six aggregate statistics (\emph{Magnitude}, \emph{Radius}, \emph{Covariance}, and \emph{Weight}). The 39-feature version is the basis for all experiments and the live demonstration in this thesis. This is acknowledged as a deliberate scope decision: results in this work are not numerically directly comparable to papers that report on the full 46-feature variant, and that gap is part of the methodological story rather than an oversight.
 
 \subsection{Dataset Statistics and Class Distribution}
 \label{subsec:dataset_stats}
 
-\par The full dataset contains approximately \textbf{46.7 million records} distributed across 169 CSV files, totaling approximately 13 GB uncompressed. The class distribution is severely imbalanced:
-
-\begin{itemize}
-    \item \textbf{Benign traffic}: approximately 1.1 million samples (2.4\% of the dataset).
-    \item \textbf{DDoS attacks}: approximately 73\% of all records, with DDoS-ICMP\_Flood alone accounting for over 7.2 million samples.
-    \item \textbf{Web-based attacks}: fewer than 25,000 samples combined, with the rarest classes (XSS, Backdoor\_Malware, CommandInjection) containing only around 100 samples each.
-\end{itemize}
+\par The full dataset contains approximately 46.7 million records across 169 CSV files, about 13 GB uncompressed, and its class distribution is severely imbalanced. Benign traffic accounts for roughly 1.1 million samples (2.4\% of the dataset); DDoS attacks make up about 73\% of all records, with DDoS-ICMP\_Flood alone contributing over 7.2 million samples; and the web-based attacks together amount to fewer than 25,000 samples, with the rarest classes (XSS, Backdoor\_Malware, CommandInjection) holding only around 100 samples each.
 
 \par The most extreme class ratio is approximately 5,751:1 between DDoS-ICMP\_Flood and the smallest attack class. This severe imbalance necessitates careful handling during model training, either through stratified sampling, class weighting, or a combination of both. Due to the dataset's size and computational constraints, most published experiments operate on stratified subsamples of 1--5 million records, preserving the original class distribution \cite{CICIoT2023}.
 
@@ -271,12 +207,4 @@ using backpropagation and an optimizer such as Adam \cite{Vinayakumar2019}.
 \subsection{Known Limitations}
 \label{subsec:dataset_limitations}
 
-\par Several limitations of the CICIoT2023 dataset should be acknowledged:
-
-\begin{itemize}
-    \item \textbf{Simulated environment}: Although real IoT devices are used, the attacks are executed in a controlled laboratory setting. Real-world attackers combine techniques, adapt strategies, and conceal their actions, none of which are captured in a static dataset.
-    \item \textbf{No encrypted traffic}: The features are extracted from packet headers and metadata. While HTTPS is flagged as a binary indicator, the dataset does not contain features derived from encrypted payload inspection. IoT traffic is increasingly encrypted, which limits the generalizability of models trained on this data.
-    \item \textbf{Smart home scope}: The testbed represents a single domain. Industrial IoT, healthcare IoT, and other verticals are not represented, and models may not transfer to those environments.
-    \item \textbf{Severe class imbalance}: As noted above, the most extreme ratio exceeds 5,000:1, requiring careful handling during both training and evaluation.
-    \item \textbf{Feature documentation}: The exact formulas for some derived features (Magnitude, Radius, Covariance, Variance, Weight) are not fully documented with mathematical definitions in the original paper.
-\end{itemize}
+\par Several limitations of the CICIoT2023 dataset should be acknowledged. The attacks are executed in a controlled laboratory setting, so although real IoT devices are used, the dataset does not capture the way real attackers combine techniques, adapt, and conceal their actions. The features are extracted from packet headers and metadata: HTTPS is flagged as a binary indicator, but there are no features derived from encrypted-payload inspection, which limits generalisability as IoT traffic becomes increasingly encrypted. The testbed represents a single smart-home domain, so models may not transfer to industrial or healthcare IoT. The class imbalance is severe, with the most extreme ratio exceeding 5,000:1, and requires careful handling in both training and evaluation. Finally, the exact formulas for some derived features (Magnitude, Radius, Covariance, Variance, Weight) are not fully documented in the original paper.

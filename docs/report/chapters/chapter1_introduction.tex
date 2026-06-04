@@ -27,26 +27,14 @@
 \section{Objectives and Contributions}
 \label{sec:intro_contributions}
 
-\par The thesis makes the following contributions:
-
-\begin{itemize}
-    \item \textbf{A reproducible end-to-end pipeline} from raw per-folder CICIoT2023 captures to a live per-flow classifier, with deterministic seeding and a fixed artefact contract so that results can be regenerated and the trained model can be served without re-running training.
-    \item \textbf{An honest temporal evaluation} of an MLP against Random Forest and XGBoost baselines at binary and eight-class granularities, reporting accuracy, macro-F1, and weighted-F1 across train, validation, and test partitions rather than a single headline number.
-    \item \textbf{A feature analysis} that identifies the most discriminative flow features and prunes the 39 public features to a 25-feature set, removing near-zero-variance flags and redundant continuous columns identified through variance and correlation analysis.
-    \item \textbf{Confidence calibration} of the deep model via temperature scaling \cite{Guo2017}, reducing expected calibration error so that the confidences shown to a user are meaningful rather than uniformly near-certain.
-    \item \textbf{A deployed demonstration system}, NEURAL IDS, comprising a containerised inference backend and a web dashboard, which validates the core real-time classification functionality against both benign and synthetic-attack traffic.
-    \item \textbf{An open account of where the approach falls short}, in particular the eight-class attack-family task, on which no model reaches the 0.85 weighted-F1 bar met on the binary task, a shortfall traced to the transport-layer nature of the public feature set.
-\end{itemize}
+\par The thesis makes six contributions. The first is a reproducible end-to-end pipeline from raw per-folder CICIoT2023 captures to a live per-flow classifier, with deterministic seeding and a fixed artefact contract so that results can be regenerated and the trained model served without re-running training. The second is a temporal evaluation of an MLP against Random Forest and XGBoost baselines at binary and eight-class granularities, reporting accuracy, macro-F1, and weighted-F1 across the train, validation, and test partitions rather than a single headline number. The third is a feature analysis that identifies the most discriminative flow features and prunes the 39 public features to a 25-feature set, dropping near-zero-variance flags and redundant continuous columns found through variance and correlation analysis. The fourth is confidence calibration of the deep model by temperature scaling \cite{Guo2017}, which lowers the expected calibration error so that the confidence shown to a user reflects empirical accuracy instead of sitting uniformly near certainty. The fifth is a deployed demonstration system, NEURAL IDS, comprising a containerised inference backend and a web dashboard, which validates the core classification functionality against both benign and synthetic-attack traffic. The sixth is an account of where the approach falls short, particularly the eight-class attack-family task, on which no model reaches the 0.85 weighted-F1 bar met on the binary task; that shortfall is traced to the transport-layer nature of the public feature set.
 
 \section{Thesis Structure}
 \label{sec:intro_structure}
 
-\par The remainder of this thesis is organized as follows:
+\par The remainder of this thesis is organised as follows. Chapter~\ref{chap:theoretical_background} presents the theoretical background, covering intrusion detection systems, deep learning for traffic classification, and the CICIoT2023 dataset. Chapter~\ref{chap:requirements} states the application requirements and specification, defining the problem, the actors involved, and the functional and non-functional constraints the system must satisfy. Chapter~\ref{chap:design_implementation} describes the design, implementation, and testing of the application, including the data pipeline, the model architecture and training procedure, the live-demo environment, and the verification of the core functionality. Chapter~\ref{chap:results} reports the experimental results and discusses the findings. Chapter~\ref{chap:conclusions} concludes the thesis and outlines directions for future work.
 
-\begin{itemize}
-    \item \textbf{Chapter 2} presents the theoretical background, covering intrusion detection systems, deep learning for traffic classification, and the CICIoT2023 dataset.
-    \item \textbf{Chapter 3} states the application requirements and specification, defining the problem to be solved, the actors involved, and the functional and non-functional constraints the system must satisfy.
-    \item \textbf{Chapter 4} describes the design, implementation, and testing of the application, including the data pipeline, model architecture, training procedure, the live-demo environment, and the verification of the core functionality.
-    \item \textbf{Chapter 5} reports experimental results and discusses the findings.
-    \item \textbf{Chapter 6} concludes the thesis and outlines directions for future work.
-\end{itemize}
+\section{Declaration on the Use of Generative AI Tools}
+\label{sec:intro_ai_declaration}
+
+\par Generative AI tools were used during the preparation of this thesis. AI-based coding assistants supported the development of the training pipeline and the demonstration application by generating boilerplate code, suggesting refactorings, and helping diagnose errors. AI language models were also used to draft and revise portions of the written text for clarity and concision. All such output was reviewed, tested, and edited by the author. Every experimental result reported here was produced by running the pipeline and was verified independently of any AI tool, and the author takes full responsibility for the content of the thesis, the correctness of the results, and the final wording.
