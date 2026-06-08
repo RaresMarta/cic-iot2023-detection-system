@@ -1,0 +1,34 @@
+Parquet shape: 4448202 rows x 27 columns
+Total size: 120,101,454 cells
+
+Columns:
+  - Header_Length
+  - Protocol Type
+  - Time_To_Live
+  - Rate
+  - fin_flag_number
+  - syn_flag_number
+  - rst_flag_number
+  - psh_flag_number
+  - ack_flag_number
+  - ack_count
+  - syn_count
+  - fin_count
+  - rst_count
+  - HTTP
+  - HTTPS
+  - DNS
+  - TCP
+  - UDP
+  - Tot sum
+  - Min
+  - Max
+  - AVG
+  - Std
+  - IAT
+  - Number
+  - source_csv
+  - Label
+
+Null labels in parquet: 0
+Unique labels count: 34

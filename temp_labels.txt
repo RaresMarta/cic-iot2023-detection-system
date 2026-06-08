@@ -1,0 +1,36 @@
+Total rows: 4448202
+Unique 34-class labels:
+Mirai-greeth_flood: 200000
+DoS-TCP_Flood: 200000
+MITM-ArpSpoofing: 200000
+VulnerabilityScan: 200000
+DDoS-PSHACK_FLOOD: 200000
+DDoS-SynonymousIP_Flood: 200000
+Mirai-greip_flood: 200000
+DDoS-SYN_Flood: 200000
+DDoS-RSTFINFLOOD: 200000
+DoS-SYN_Flood: 200000
+DDoS-TCP_Flood: 200000
+DDoS-ICMP_Fragmentation: 200000
+DDoS-ICMP_Flood: 200000
+Benign_Final: 200000
+DDoS-UDP_Flood: 200000
+DDoS-UDP_Fragmentation: 200000
+Mirai-udpplain: 200000
+DoS-UDP_Flood: 200000
+DDoS-ACK_Fragmentation: 200000
+DNS_Spoofing: 174186
+Recon-HostDiscovery: 133527
+Recon-OSScan: 96490
+Recon-PortScan: 80236
+DoS-HTTP_Flood: 71489
+DDoS-HTTP_Flood: 28790
+DDoS-SlowLoris: 23426
+DictionaryBruteForce: 13062
+BrowserHijacking: 5788
+CommandInjection: 5388
+SqlInjection: 5245
+XSS: 3846
+Backdoor_Malware: 3215
+Recon-PingSweep: 2262
+Uploading_Attack: 1252

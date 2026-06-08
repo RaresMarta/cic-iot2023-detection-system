@@ -8,18 +8,28 @@ REST API:   http://localhost:7860/api/classify
 """
 from __future__ import annotations
 
+import asyncio
+import collections
+import json
+import random
 import tempfile
 import time
 from pathlib import Path
 
 import gradio as gr
+import joblib
+import numpy as np
 import polars as pl
 import uvicorn
 from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 
 from demo.cicflowmeter_runner import CICFlowMeterError, run_cicflowmeter
+from demo.explain import FlowExplainer
 from demo.inference import IDSPredictor
+from demo.sampler import FlowSampler
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 MODELS_DIR   = PROJECT_ROOT / 'models'
@@ -46,6 +56,69 @@ if not PREDICTORS:
         f'No trained models found in {MODELS_DIR}. '
         'Run the notebook end-to-end before launching the demo.'
     )
+
+# ── Live demo: sampler + SHAP explainer over the 8-class model ───────────────
+# The SOC dashboard streams real flows sampled from the training parquet (simulate mode),
+# classifies them with the 8-class model, and explains each verdict with SHAP.
+_STREAM_KEY = 'temporal / 8-class'
+STREAM_PREDICTOR = PREDICTORS.get(_STREAM_KEY) or next(iter(PREDICTORS.values()))
+SAMPLER = FlowSampler()
+EXPLAINER = FlowExplainer(STREAM_PREDICTOR, SAMPLER)
+
+# In-memory queue of attack families to inject into the live stream (filled by /api/inject).
+INJECT_QUEUE: collections.deque[str] = collections.deque()
+
+
+def _synthetic_endpoints(is_attack: bool) -> tuple[str, str]:
+    """Plausible-looking src/dst for display only (simulate mode has no real packets)."""
+    if is_attack:
+        src = f'185.{random.randint(1, 254)}.{random.randint(1, 254)}.{random.randint(1, 254)}'
+    else:
+        src = f'192.168.1.{random.randint(2, 254)}'
+    dst = f'10.0.0.5:{random.choice([80, 443])}'
+    return src, dst
+
+
+def _make_flow_event(family_request: str, flow_id: int) -> dict:
+    """Sample one real flow of the requested family, classify + explain it, build an event."""
+    df = SAMPLER.sample_flows(family_request, n=1)
+    scaled = STREAM_PREDICTOR.preprocess(df)
+    pred = STREAM_PREDICTOR.predict(df)
+    probs = pred['probabilities'][0]
+    idx = int(np.argmax(probs))
+    label = str(pred['labels'][0])
+    reasons = EXPLAINER.explain(scaled[0], df.row(0, named=True), idx, top_k=8)
+    src, dst = _synthetic_endpoints(is_attack=family_request != 'Benign')
+    return {
+        'flow_id': flow_id,
+        'src': src,
+        'dst': dst,
+        'true_family': family_request,
+        'family': label,
+        'gate': 'allow' if label == 'Benign' else 'block',
+        'confidence': float(pred['confidences'][0]),
+        'probabilities': {n: float(p) for n, p in zip(pred['class_names'], probs)},
+        'explanation': reasons,
+    }
+
+
+async def _event_stream():
+    flow_id = 0
+    while True:
+        family = INJECT_QUEUE.popleft() if INJECT_QUEUE else 'Benign'
+        flow_id += 1
+        try:
+            event = _make_flow_event(family, flow_id)
+            yield f'data: {json.dumps(event)}\n\n'
+        except Exception as e:  # never kill the stream on a single bad flow
+            yield f'data: {json.dumps({"flow_id": flow_id, "error": str(e)})}\n\n'
+        # Burst faster while an attack is in progress, idle slower for the benign baseline.
+        await asyncio.sleep(0.15 if INJECT_QUEUE else 0.6)
+
+
+class InjectRequest(BaseModel):
+    family: str
+    count: int = 20
 
 
 def _aggregate(pred: dict) -> dict:
@@ -131,6 +204,56 @@ async def classify_endpoint(
     result['file_name']   = file.filename
     result['success']     = True
     return result
+
+
+# ── Live SOC demo endpoints ──────────────────────────────────────────────────
+@api.get('/api/stream')
+async def stream_endpoint():
+    """SSE feed of classified flows for the SOC dashboard."""
+    return StreamingResponse(
+        _event_stream(),
+        media_type='text/event-stream',
+        headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'},
+    )
+
+
+@api.post('/api/inject')
+def inject_endpoint(req: InjectRequest):
+    """Queue attack flows of a green family to appear in the live stream."""
+    if req.family not in SAMPLER.families:
+        return {'error': f'Unknown family {req.family!r}. Available: {SAMPLER.families}'}
+    n = max(1, min(req.count, 200))
+    for _ in range(n):
+        INJECT_QUEUE.append(req.family)
+    return {'queued': n, 'family': req.family, 'pending': len(INJECT_QUEUE)}
+
+
+@api.get('/api/feature-importance')
+def feature_importance_endpoint():
+    """Global permutation feature importance for the explainability panel."""
+    path = MODELS_DIR / 'perm_imp_global_test.joblib'
+    if not path.exists():
+        return {'error': 'perm_imp_global_test.joblib not found'}
+    raw = joblib.load(path)
+    features = list(STREAM_PREDICTOR.x_columns)
+    if isinstance(raw, dict) and 'features' in raw and 'importance' in raw:
+        names = list(raw['features'])
+        imps = np.asarray(raw['importance']).reshape(-1)
+        items = [{'feature': str(n), 'importance': float(i)} for n, i in zip(names, imps)]
+    elif isinstance(raw, dict):
+        items = [{'feature': str(k), 'importance': float(np.asarray(v).mean())}
+                 for k, v in raw.items()]
+    else:
+        arr = np.asarray(raw).reshape(-1)
+        items = [{'feature': features[i] if i < len(features) else str(i),
+                  'importance': float(arr[i])} for i in range(len(arr))]
+    items.sort(key=lambda d: -d['importance'])
+    return {'features': items}
+
+
+@api.get('/api/families')
+def families_endpoint():
+    return {'families': SAMPLER.families, 'classes': list(STREAM_PREDICTOR.encoder.classes_)}
 
 
 # ── Gradio UI ──────────────────────────────────────────────────────────────
