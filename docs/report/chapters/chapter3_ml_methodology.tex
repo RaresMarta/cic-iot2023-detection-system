@@ -1,0 +1,144 @@
+\chapter{Machine Learning Methodology}
+\label{chap:ml_methodology}
+
+\par This chapter presents the machine learning core of the thesis: how the raw CICIoT2023 captures are turned into clean training data, how that data is split so that the evaluation is trustworthy, how the model is built and trained, and how it is evaluated. Everything else in the system is built on top of the artefacts this chapter produces. The application that serves the trained model is specified in Chapter~\ref{chap:requirements} and designed in Chapter~\ref{chap:design_implementation}; the experimental results of the methodology described here are reported in Chapter~\ref{chap:results}.
+
+\section{Data Pipeline}
+\label{sec:data_pipeline_design}
+
+\par The training data pipeline performs a sequence of deterministic transformations from the raw per-folder CSVs to the train/validation/test tensors that feed the model. Each transformation is a separate pipeline phase so that intermediate state is inspectable.
+
+\subsection{Ingestion and Deduplication}
+\label{subsec:ingestion}
+
+\par For each of the attack folders, the pipeline lazily scans every CSV, projects only the feature columns plus a synthetic column that carries the source-capture filename, and concatenates the resulting lazy frames. Materialisation happens only after the projection, so the multi-tens-of-millions-of-rows corpus is never held in memory in its raw width.
+
+\par CICIoT2023 contains a substantial fraction of exact duplicate rows, a known property of the dataset and a recurring concern in the literature. Deduplication is applied immediately after concatenation, before any sampling. Deduplicating before sampling is essential: a folder where most rows are duplicated would otherwise have the same row repeated many times in the sample, which would inflate accuracy on the corresponding test rows. The quantitative impact of each pipeline stage (raw count, duplicates removed, unique rows, sampling cap applied) is reported in Chapter~\ref{chap:results} (Figure~\ref{fig:ingest_waterfall}).
+
+\subsection{Per-Class Subsampling}
+\label{subsec:subsampling}
+
+\par After deduplication, every folder whose deduplicated row count exceeds the per-class cap is randomly subsampled to that cap with a fixed seed. This brings the effective training-set size down from tens of millions of rows to a few million while keeping every attack class represented.
+
+\par The cap is set at the high end of the range used in the CICIoT2023 literature. Random sampling is preferred over taking the leading rows of each folder because each attack folder is a chronological concatenation of several capture sessions: the first $N$ rows come almost entirely from the first session, and a leading-rows sample would bias the model toward whatever happened in that opening session.
+
+\subsection{Caching}
+\label{subsec:caching}
+
+\par The deduplicated, subsampled, labelled rows are concatenated across folders and written to a single Zstandard-compressed columnar file. Subsequent runs skip ingestion and load from this cache directly. Regeneration is forced by deleting the cache file. This is documented inline so future runs do not silently use a stale cache after sampling logic changes.
+
+\subsection{Cleaning}
+\label{subsec:cleaning}
+
+\par The cleaning phase performs three operations on the materialised frame. First, null-label rows are dropped (defensive only; labels come from folder names, so this should be a no-op). Second, infinities are replaced with nulls; the actual median imputation is deferred to after the train/validation/test split so the medians are computed on the training partition only. Third, a $\log(1+x)$ transform is applied to the heavy-tailed continuous features (rates, total bytes, inter-arrival times). Binary protocol and flag indicators are excluded from the log transform.
+
+\subsection{Three Split Strategies}
+\label{subsec:split_strategies}
+
+\par Three splitting functions are defined and selected by configuration, each addressing a different source of evaluation leakage.
+
+\par \textbf{Random row split.} Two stratified splits in series produce 70/15/15 train/validation/test partitions, stratified by the fine-grained label so every class appears in every partition. This is reported only for parity with previously published numbers.
+
+\par \textbf{Per-capture split.} Two consecutive group-aware splits with the source-capture filename as the group identifier produce a 70/15/15 split where no source capture ever appears in more than one partition. This eliminates within-session redundancy leaking across the boundary, but preserves no temporal order.
+
+\par \textbf{Temporal split (headline).} For each attack folder, the source captures are sorted by filename and partitioned chronologically: the earliest 70\% become train, the next 15\% become validation, and the latest 15\% become test. Folders with fewer than three distinct source captures fall back to a row-level temporal split inside the folder. This mirrors deployment (train on past, test on future) and is the headline result reported in the thesis. The temporal F1 is expected to sit a few points below the random F1; that gap is the honest generalisation story.
+
+\subsection{Train-Only Preprocessing Fit}
+\label{subsec:train_fit_preprocess}
+
+\par For each split, column medians are computed on the training rows only, nulls in the train, validation, and test partitions are imputed using those medians, and the robust scaler is fitted on training rows alone before being applied to all three partitions. The robust scaler standardises each feature by its median and interquartile range rather than its mean and standard deviation:
+\begin{equation}
+    x' = \frac{x - \operatorname{median}(x)}{\mathrm{IQR}(x)}, \qquad \mathrm{IQR}(x) = Q_3(x) - Q_1(x),
+    \label{eq:robust_scaler}
+\end{equation}
+where $Q_1$ and $Q_3$ are the first and third quartiles estimated on the training rows. Centring on the median and dividing by the IQR makes the transform insensitive to the heavy upper tails of the CIC rate and byte-count features, which would otherwise dominate a mean/variance scaler. The contract that medians, quartiles, and the scaler are fitted strictly on training rows rules out test-set leakage and is what makes the temporal-split metrics meaningful.
+
+\section{Model Architecture and Training}
+\label{sec:model_architecture}
+
+\subsection{MLP Topology}
+\label{subsec:mlp_topology}
+
+\par The model is a two-hidden-layer multi-layer perceptron with batch normalisation and dropout:
+
+\begin{equation*}
+    n_{\text{features}} \xrightarrow{\text{Linear}} 128 \xrightarrow{\text{BN, ReLU, Dropout}_{0.3}} 64 \xrightarrow{\text{BN, ReLU, Dropout}_{0.3}} n_{\text{classes}}
+\end{equation*}
+
+\par Batch normalisation, applied after each hidden linear layer, standardises that layer's pre-activations across the mini-batch to zero mean and unit variance before rescaling them by two learned parameters $(\gamma, \beta)$:
+\begin{equation}
+    \mathrm{BN}(z) = \gamma \, \frac{z - \mu_{\mathcal{B}}}{\sqrt{\sigma_{\mathcal{B}}^2 + \epsilon}} + \beta,
+    \label{eq:batchnorm}
+\end{equation}
+where $\mu_{\mathcal{B}}$ and $\sigma_{\mathcal{B}}^2$ are the per-feature mean and variance over the current batch $\mathcal{B}$ and $\epsilon$ is a small constant for numerical stability.
+
+\par The architecture is small for three reasons. Empirical studies of MLPs on tabular data report diminishing returns past two hidden layers when the input dimensionality is in the tens. Batch normalisation (Equation~\ref{eq:batchnorm}) is needed to stabilise training under the large class-weight range: at the fine-grained granularity the heaviest class weight is more than fifty times the lightest, and gradients without batch normalisation would oscillate. And the 0.3 dropout rate, more conservative than the common 0.5, generalises better on this dataset, where the cleaned training set is already several million rows.
+
+\subsection{Class-Weighted Cross-Entropy}
+\label{subsec:class_weighted_ce}
+
+\par Class weights are computed using the standard balanced-frequency rule applied to the encoded training labels, then passed to the cross-entropy loss. For a problem with $K$ classes, $N$ training samples, and $n_c$ samples in class $c$, the weight of class $c$ is
+\begin{equation}
+    w_c = \frac{N}{K \, n_c},
+    \label{eq:balanced_weights}
+\end{equation}
+so that rare classes receive proportionally larger weight (and $\sum_c n_c w_c = N$). These weights enter the multi-class cross-entropy loss applied to the softmax outputs $\hat{y}_{i,k}$:
+\begin{equation}
+    \mathcal{L} = -\frac{1}{N} \sum_{i=1}^{N} \sum_{k=1}^{K} w_{k}\, y_{i,k} \log\!\big(\hat{y}_{i,k}\big),
+    \label{eq:weighted_ce}
+\end{equation}
+where $y_{i,k}$ is the one-hot ground-truth indicator for sample $i$ and class $k$. Equation~\eqref{eq:weighted_ce} is the multi-class, class-weighted generalisation of the binary cross-entropy in Equation~\eqref{eq:bce_loss}. Weighting is preferred over resampling because SMOTE would generate synthetic flow vectors that have no operational meaning (a half-and-half SYN-flood / DNS-spoofing flow does not correspond to any real attack), and weighted batch sampling would be redundant with weighted cross-entropy.
+
+\subsection{Optimiser, Schedule, and Early Stopping}
+\label{subsec:training_loop}
+
+\par Training uses Adam with an initial learning rate of $10^{-3}$, paired with a learning-rate schedule that halves the rate after two consecutive epochs without validation-loss improvement. A separate early-stopping mechanism with a patience of five epochs caps total training. The batch size is 4096, large enough to amortise the batch-normalisation overhead and small enough to keep the per-step gradient meaningful.
+
+\par The training loop tracks training loss, validation loss, and the current learning rate per epoch, restoring the best validation-loss state at the end. The best state is what is serialised; the final-epoch state is discarded.
+
+\subsection{Hyperparameter Selection}
+\label{subsec:hpo}
+
+\par The architecture and optimisation settings above are not arbitrary: they were selected by an automated hyperparameter search rather than fixed by hand. A Tree-structured Parzen Estimator (TPE) sampler explores the search space summarised in Table~\ref{tab:hpo_space} over fifteen trials, each trained for ten epochs on a 100{,}000-row stratified subsample of the training set, with a median pruner terminating clearly unpromising trials early. The objective minimised is the validation loss. The search confirmed that a compact two-hidden-layer network with $[128, 64]$ units, $0.3$ dropout, ReLU activations, the Adam optimiser, and a $4096$ batch size is a strong configuration for this dataset; this configuration is then retrained to convergence (up to fifty epochs with early stopping) on the full training set and used for all reported results.
+
+\begin{table}[htbp]
+\begin{center}
+\begin{tabular}{|p{120pt}|p{200pt}|}
+\hline
+\textbf{Hyperparameter} & \textbf{Search range} \\
+\hline
+\hline Hidden layers & 2--4 \\
+\hline Units per layer & 64--512 (step 32) \\
+\hline Dropout & 0.1--0.5 \\
+\hline Activation & ReLU, ELU, LeakyReLU \\
+\hline Learning rate & $10^{-4}$--$10^{-2}$ (log scale) \\
+\hline Optimiser & Adam, AdamW \\
+\hline Batch size & 2048, 4096, 8192 \\
+\hline
+\end{tabular}
+\end{center}
+\caption{Optuna TPE search space for the MLP. Fifteen trials, ten epochs each on a 100{,}000-row subsample, validation loss as the objective, median pruning.}
+\label{tab:hpo_space}
+\end{table}
+
+\section{Evaluation Methodology}
+\label{sec:evaluation_methodology}
+
+\subsection{Classification Metrics}
+\label{subsec:classification_metrics}
+
+\par Every (split, granularity, model) combination is evaluated with the same protocol: accuracy, macro-averaged F1, support-weighted F1, macro precision and recall, the full per-class precision/recall/F1 report, and the row-normalised confusion matrix. Two averages of F1 are reported because they answer different questions under class imbalance. Weighted F1 averages the per-class F1 scores proportionally to class support, so it reflects performance on the traffic mix as it actually occurs but can be dominated by the large DDoS and Mirai classes. Macro F1 weights every class equally, so it exposes weakness on the rare classes that weighted F1 can hide. Aggregate numbers are always accompanied by the per-class report, and the headline figures are taken from the temporal split.
+
+% TODO(restructure): the confidence-calibration methodology (temperature scaling,
+% ECE) is currently introduced together with its results in the Results chapter
+% (sec:calibration). If we want all methodology in this chapter, move the first
+% paragraph of that section here as \subsection{Confidence Calibration}.
+
+\subsection{Latency Benchmark}
+\label{subsec:latency_benchmark}
+
+% TODO(verify-vs-code): the text claims 10,000 inference passes per batch size,
+% but config.py sets N_RUNS = 1000 (warmup 100 matches). Align the text with the
+% code (or rerun the benchmark with 10k) before submission. Same claim appears in
+% FR-P8 in the requirements chapter.
+\par For each trained model, the benchmark loop runs $10{,}000$ inference passes per batch size in $\{1, 32, 256, 1024\}$ on CPU after a warmup of one hundred passes, with the timer wrapped around the feature scaling step \emph{and} the model forward pass. The pipeline reports the p50, p95, and p99 of the per-batch latency in milliseconds and the implied flows-per-second throughput. The acceptance criterion, later formalised as NFR-1 (Section~\ref{sec:non_functional_requirements}), is a sub-100~ms p95 end-to-end latency on a consumer laptop CPU at any of those batch sizes.

@@ -4,6 +4,10 @@
 \section{Summary of Contributions}
 \label{sec:contributions}
 
+% TODO(verify-vs-code): the paragraph below claims the dashboard shows "a
+% timestamped history" — per-user history (Supabase) is not wired in the
+% frontend yet. Soften or confirm once auth/persistence lands.
+
 \par This thesis designed, implemented, and evaluated a real-time intrusion detection system for IoT networks built on the CICIoT2023 dataset, delivering a reproducible offline training pipeline and an interactive web demonstration. The data pipeline ingests the raw CICIoT2023 captures, removes the large exact-duplicate fraction before sampling, subsamples each class to a 200{,}000-row cap, and writes a compressed columnar cache, reproducing byte-identical splits from the same seed and source files. A feature analysis characterises the 39 public features through variance and inter-feature correlation, pruning 14 near-zero-variance indicators and two perfectly collinear continuous pairs to leave a 25-feature input. On that input a two-hidden-layer MLP was trained at binary and 8-class attack-family granularities on the temporal split and compared against Random Forest and XGBoost baselines under identical splits and metrics, so the comparison is controlled. The MLP's softmax confidences were calibrated by temperature scaling at no cost to predicted labels. The NEURAL IDS web demonstration pairs a Gradio/FastAPI backend with a React dashboard that accepts pre-extracted CSVs or raw packet captures, classifies flows in under 10 ms, and shows confidence scores, per-class probabilities, and a timestamped history, deployed on Hugging Face Spaces for remote access. The quantitative outcomes of these experiments are summarised in the next section.
 
 \section{Key Findings}

@@ -3,6 +3,39 @@
 
 \par This chapter presents the theoretical foundations underlying the work developed in this thesis. It begins with an overview of intrusion detection systems and their role in network security, then introduces deep learning as a tool for traffic classification, with a focus on multi-layer perceptrons. Finally, it describes the CICIoT2023 dataset, which serves as the training and evaluation basis for the models developed in subsequent chapters.
 
+% ============================================================================
+% TODO(restructure): planned new opening sections, so the chapter reads as a
+% linear journey from networking basics to IDS (sources: Fortinet cyberglossary,
+% Cloudflare Learning — add proper @misc bib entries):
+%
+% \section{Network Traffic and Packet-Based Communication}
+%   - what network traffic is: data packets between devices across a network
+%   - how an HTTP request is broken into packets as it moves through the layers
+%   - north-south (client-server) vs east-west (server-server) traffic
+%
+% \section{Network Monitoring}
+%   - continuous observation/analysis of traffic and performance
+%   - identifying patterns, anomalies, potential threats -> bridge to IDS
+%
+% \section{Cybersecurity Context}  (could merge into the section above)
+%   - protecting systems/networks/apps/data from attacks and unauthorised access
+%   - AI on both sides: attackers (phishing at scale, automated exploits) vs
+%     defenders (better detection, faster response)
+%
+% (existing \section{Intrusion Detection Systems} follows here)
+%
+% \subsection{Detection versus Prevention: IDS and IPS}  (inside the IDS section)
+%   - IDS observes and alerts (beside the path); IPS sits inline and blocks
+%   - correlations and differences; where this project sits
+%
+% \subsection{Limits of Endpoint Response}  (inside the IDS section, short)
+%   - bandwidth is spent before the receiving host has any say: dropping a
+%     packet at the local firewall does not refund the bandwidth it consumed
+%     on the wire; a 50 Gbps flood saturates a 1 Gbps link upstream of any
+%     local rule -> motivates on-premises vs cloud/upstream mitigation, and
+%     scopes what host-level active response can and cannot achieve
+% ============================================================================
+
 \section{Intrusion Detection Systems}
 \label{sec:ids}
 

@@ -56,6 +56,8 @@ The system is built around a two-hidden-layer Multi-Layer Perceptron (MLP) train
 
 The practical component is a web demonstration, NEURAL IDS, pairing a FastAPI backend with a React dashboard that accepts pre-extracted feature CSVs or raw packet captures, classifies flows in under 10 milliseconds, and displays confidence scores and per-class probability breakdowns. It correctly flags a synthetic SYN-flood capture as an attack (every flow flagged as Attack, mean calibrated confidence 99.6\%) and classifies benign browsing as Benign (98\% of flows), validating the core classification functionality required by the project specification.
 
+% Show only chapters and sections in the TOC (subsections inflate it to 3 pages).
+\setcounter{tocdepth}{1}
 {\setstretch{1.0}\tableofcontents}
 
 
@@ -66,11 +68,12 @@ The practical component is a web demonstration, NEURAL IDS, pairing a FastAPI ba
 %\addcontentsline{toc}{chapter}{Introduction}
 
 \input{chapters/chapter2}
-\input{chapters/chapter3}
-\input{chapters/chapter4}
-\input{chapters/chapter5_results}
+\input{chapters/chapter3_ml_methodology}
+\input{chapters/chapter4_results}
+\input{chapters/chapter5_requirements}
+\input{chapters/chapter6_application}
 
-\input{chapters/chapter6_conclusions}
+\input{chapters/chapter7_conclusions}
 %\addcontentsline{toc}{chapter}{Conclusions}
 
 \par % close the final body paragraph under 1.5 spacing before the single-spaced bibliography group

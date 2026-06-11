@@ -1,0 +1,161 @@
+\chapter{Application Requirements and Specification}
+\label{chap:requirements}
+
+\par This chapter defines the application that constitutes the practical contribution of the thesis: a web demonstration in which the user submits captured network traffic and receives per-flow intrusion-detection verdicts from the model of Chapter~\ref{chap:ml_methodology}. It identifies the actor and use cases, states the functional and non-functional requirements, and fixes the system-level specification that constrains the implementation in Chapter~\ref{chap:design_implementation}.
+
+\section{Project Goal and Scope}
+\label{sec:project_goal}
+
+\par The deliverable is a real-time intrusion detection system (RT-IDS) for IoT networks built on CICIoT2023, structured as two cooperating subsystems. The training subsystem is the reproducible offline pipeline of Chapter~\ref{chap:ml_methodology}, which serialises the small set of artefacts needed for inference. The serving subsystem is a web application that loads those artefacts, accepts either a pre-extracted feature CSV in CIC format or a raw packet capture (from which a flow-extraction tool derives the features), runs the trained model, and presents per-flow verdicts and an aggregated summary in the browser.
+
+\par The system targets an interactive, single-request setting: the user supplies a sample of traffic and reviews the verdict on screen. Line-rate gateway protection (sub-millisecond per-packet inference at multi-gigabit throughput) is out of scope; this narrower sense of \enquote{real time} sets the latency thresholds below. Both classification granularities are exposed: the 2-class gate an inline deployment would use, and the 8-class attack-family view an analyst would consume.
+
+\section{Stakeholders and Actors}
+\label{sec:actors}
+
+\par The application has a single actor, the \emph{operator}: the person who opens the web interface, selects a model variant, uploads a packet capture or feature CSV, and reads the per-flow verdicts. During the thesis defence the author acts as operator, and a reviewer reproducing a result plays the same role. Model training is deliberately \emph{not} a function of the application: users cannot train, retrain, or modify models through it. Models are trained offline by the author through the pipeline of Chapter~\ref{chap:ml_methodology}, and the application only consumes the serialised artefacts that training produces. Regenerating those artefacts is a development-time activity that happens outside the application and exposes no user-facing functionality.
+
+\par The core classification path is stateless: submitted captures and CSVs are processed in a temporary location and never persisted (FR-D5). The deployed frontend adds a thin convenience tier on top (user accounts and a per-user history), which stores only derived result metadata, never the uploaded traffic itself (Section~\ref{subsec:auth_persistence}).
+
+\section{Functional Requirements}
+\label{sec:functional_requirements}
+
+\par The functional requirements are split into pipeline-side requirements (the offline training subsystem) and demo-side requirements (the web application).
+
+\subsection{Pipeline Requirements}
+\label{subsec:pipeline_requirements}
+
+\par The pipeline-side requirements formalise the methodology of Chapter~\ref{chap:ml_methodology}, so they are stated here without repeating the rationale given there. Ingestion must be reproducible (FR-P1): re-running with the same seed and source files yields a byte-identical columnar intermediate, with exact duplicate rows dropped before any sampling. Per-class subsampling must be uniform under a configurable cap with a fixed seed (FR-P2), drawing randomly rather than taking leading rows. The pipeline must produce the three splits of Section~\ref{subsec:split_strategies} over the same subsampled rows (FR-P3) and, for each split, train and evaluate one model per granularity while reusing the same row indices (FR-P4). Imbalance is handled by class-weighted cross-entropy, with synthetic oversampling and weighted batch sampling explicitly rejected (FR-P5; Section~\ref{subsec:class_weighted_ce}). A Random Forest and a gradient-boosted-tree baseline must be trained on the same splits and reported under the same metrics (FR-P6). For every (split, granularity) pair the pipeline reports the metric set of Section~\ref{subsec:classification_metrics} (FR-P7) and the percentile latency benchmark of Section~\ref{subsec:latency_benchmark} (FR-P8; a mean latency alone does not satisfy this requirement), and persists the artefact triple, the fitted scaler, the fitted label encoder, and the trained weights, under a naming convention uniform enough that new variants need no code changes (FR-P9, Section~\ref{subsec:high_level_architecture}).
+
+\subsection{Demo Requirements}
+\label{subsec:demo_requirements}
+
+\par The core demo requirement (FR-D1) is per-flow classification of submitted traffic: the demo accepts either a CSV in the CIC feature format or a raw packet capture, and returns a per-flow verdict table with an aggregated summary. For packet captures the established CIC flow-extraction tool is invoked as a subprocess; flow extraction is not reimplemented, since that would risk numerical drift between live and training features. The remaining requirements support this core. Model-variant selection (FR-D2) lists every (split, granularity) pair with trained artefacts on disk and lets the user switch without restarting. The output schema is deterministic (FR-D3): a summary line with the flow count and a per-label breakdown, followed by a table of row index, predicted label, and confidence. Input is self-validating (FR-D4): a CSV missing expected columns produces an error naming them, and a flow-extraction failure surfaces the tool's own error message rather than crashing the request.
+
+\par Raw traffic is never persisted (FR-D5): uploads are processed in a temporary location, removed when the request ends, and never logged; only derived result metadata (model, predicted label, confidence, mode, timestamp) may be stored for an authenticated user. The application is deployed as a permanent public service (FR-D6) at a fixed HTTPS URL with no presenter-side configuration: the backend as a Docker container on Hugging Face Spaces, the React frontend on Vercel, and a local Gradio UI as fallback. % TODO(verify-vs-code): FR-D7 (auth + per-user history) is not implemented yet —
+% the Supabase schema exists but the frontend has no auth/persistence wiring.
+% Keep as a requirement only if it will be delivered; see subsec:auth_persistence.
+The deployed frontend requires authentication and keeps a per-user history of past classifications (FR-D7, metadata only per FR-D5), with isolation enforced at the storage layer rather than in client code.
+
+\section{Non-Functional Requirements}
+\label{sec:non_functional_requirements}
+
+\par End-to-end per-flow latency through the demo (CSV parsing, scaling, forward pass, result formatting) must stay below 100~ms at p95 on a consumer laptop CPU for batches of up to 1024 flows (NFR-1); packet-capture parsing is excluded because the flow-extraction tool dominates that path, and capture-to-verdict latency is reported separately. For classification performance (NFR-2), the temporal-split model must reach at least 0.85 weighted-F1 on the held-out binary test set; the harder 8-class task is a secondary objective whose weighted-F1 is expected to be lower, since the transport-layer features cannot fully separate the application-layer families.
+
+\par The pipeline must be reproducible (NFR-3): a single deterministic seed feeds every random source, so re-running yields identical splits and metrics within $\pm 0.001$ F1. It must fit within 16~GB of RAM at every stage (NFR-4), which forces lazy columnar processing, and must run on CPU-only hardware (NFR-5), using a GPU opportunistically but never as a dependency. The demo must run on Windows and Linux (NFR-6) and the backend must be packageable as a Docker image. Operation must stay simple (NFR-7): a permanent HTTPS URL, a single command for local development, and no database, message queue, or dedicated model server, since the backend loads artefacts directly into the application process. Reporting must be faithful (NFR-8): headline metrics come from the temporal split even though the random split reports higher numbers, and per-class metrics always accompany aggregates so majority-class dominance cannot mask weak minority classes.
+
+\section{Use Cases}
+\label{sec:use_cases}
+
+\par The principal interactions are summarised in Table~\ref{tab:use_cases}; the core classification path is then narrated as the representative flow.
+
+\begin{table}[htbp]
+\begin{center}
+\begin{tabular}{|p{34pt}|p{92pt}|p{95pt}|p{125pt}|}
+\hline
+\textbf{ID} & \textbf{Actor} & \textbf{Trigger} & \textbf{Outcome} \\
+\hline
+\hline UC-1 & Operator & Uploads a packet capture & Per-flow verdict table and summary; temporary capture removed afterwards. \\
+\hline UC-2 & Operator & Uploads a pre-extracted CIC CSV & Per-flow verdict table; missing columns reported as a readable error. \\
+\hline UC-3 & Operator & Selects a different model card & Result screen re-rendered under the new variant with no restart or reload. \\
+\hline UC-4 & Operator & Opens the public NEURAL IDS URL & Demo reachable from any network at a permanent URL with no presenter-side setup. \\
+\hline
+\end{tabular}
+\end{center}
+\caption{Principal use cases with their actors, triggers, and outcomes.}
+\label{tab:use_cases}
+\end{table}
+
+\par In the core flow (UC-1), the operator opens the public NEURAL IDS URL, selects a model variant, and uploads a packet capture. The application stores the capture temporarily, runs the flow-extraction tool to obtain a feature CSV, applies the trained scaler and model, and renders the summary and the per-flow verdict table; the temporary files are then removed. If flow extraction fails, its error output is returned with an empty table. The CSV path (UC-2) is identical except that it validates the CIC column set instead of running flow extraction.
+
+\section{System Specification}
+\label{sec:system_specification}
+
+\par This section fixes the high-level architecture and the technology choices; the detailed design follows in Chapter~\ref{chap:design_implementation}.
+
+\subsection{High-Level Architecture}
+\label{subsec:high_level_architecture}
+
+\par The system consists of two pipelines that meet at a small set of serialised artefacts. The training pipeline runs offline and produces those artefacts. The serving pipeline is the live demo, which loads them and answers classification requests. Figure~\ref{fig:system_architecture} shows the data flow.
+
+\begin{figure}[htbp]
+    \centering
+    \resizebox{0.88\textwidth}{!}{%
+    \begin{tikzpicture}[
+        node distance=0.6cm and 0.8cm,
+        layer/.style={
+            rectangle,
+            rounded corners=4pt,
+            draw=black!70,
+            thick,
+            minimum width=2.6cm,
+            minimum height=1.0cm,
+            text width=2.5cm,
+            align=center,
+            font=\small
+        },
+        train/.style={layer, fill=blue!8},
+        artefact/.style={layer, fill=yellow!18, minimum width=2.4cm},
+        serve/.style={layer, fill=green!10},
+        arrow/.style={
+            ->,
+            >=latex,
+            thick,
+            black!60
+        }
+    ]
+    % Training pipeline (top row)
+    \node[train] (raw)        {Raw CIC\\captures};
+    \node[train, right=of raw]        (parquet)   {Cleaned\\columnar\\intermediate};
+    \node[train, right=of parquet]    (split)     {Splits\\(temporal /\\per-capture /\\random)};
+    \node[train, right=of split]      (train)     {Model\\training};
+
+    % Artefact layer (middle)
+    \node[artefact, below=of train, yshift=-0.2cm] (scaler)  {Fitted\\scaler};
+    \node[artefact, left=of scaler]                (encoder) {Fitted\\encoder};
+    \node[artefact, left=of encoder]               (weights) {Trained\\weights};
+
+    % Serving pipeline (bottom row)
+    \node[serve, below=of weights, yshift=-0.2cm]  (pcap)    {Capture /\\CSV upload};
+    \node[serve, right=of pcap]                    (cic)     {Flow\\extractor};
+    \node[serve, right=of cic]                     (predict) {Inference\\component};
+    \node[serve, right=of predict]                 (gradio)  {Web UI};
+
+    % Arrows: training row
+    \draw[arrow] (raw) -- (parquet);
+    \draw[arrow] (parquet) -- (split);
+    \draw[arrow] (split) -- (train);
+
+    % Train -> artefacts
+    \draw[arrow] (train.south) -- (scaler.north);
+    \draw[arrow] (train.south) -- (encoder.north);
+    \draw[arrow] (train.south) -- (weights.north);
+
+    % Artefacts -> predictor
+    \draw[arrow] (scaler.south) -- (predict.north);
+    \draw[arrow] (encoder.south) -- (predict.north);
+    \draw[arrow] (weights.south) -- (predict.north);
+
+    % Serving row
+    \draw[arrow] (pcap) -- (cic);
+    \draw[arrow] (cic) -- (predict);
+    \draw[arrow] (predict) -- (gradio);
+
+    \end{tikzpicture}%
+    }
+    \caption{High-level architecture of the RT-IDS application. The training pipeline (blue) produces three serialised artefacts (yellow), which the serving pipeline (green) loads to answer per-flow classification requests.}
+    \label{fig:system_architecture}
+\end{figure}
+
+\subsection{Technology Stack and Rationale}
+\label{subsec:tech_stack}
+
+\par The technology choices follow from the requirements. Data wrangling uses a lazy columnar engine with compressed intermediates, so the corpus is processed without being materialised in memory (NFR-4). Features are scaled with the robust median/IQR scaler and labels use a reversible integer encoder; imbalance is handled by class-weighted cross-entropy (Section~\ref{subsec:class_weighted_ce}). The deep model is the MLP of Section~\ref{sec:model_architecture}, compared against Random Forest and gradient-boosted-tree baselines. Packet captures are converted to feature CSVs by CICFlowMeter, the CIC team's reference tool, to avoid numerical drift between live and training features. The demo pairs a Gradio + FastAPI backend with the NEURAL IDS React dashboard, containerised on Hugging Face Spaces and served from Vercel respectively, which yields a permanent HTTPS URL. A single deterministic seed propagated to every random source provides reproducibility (NFR-3).
+
+\subsection{Constraints and Assumptions}
+\label{subsec:constraints}
+
+\par Several constraints bound the work. The 39-feature public CSV release of CICIoT2023 is the only source of training data; the 46-feature variant used by some published comparisons was not available from the official distribution, so numerical results are not directly comparable across the two feature sets (Section~\ref{subsec:features}). The dataset comes from a smart-home testbed, so generalisation to industrial, medical, or vehicular networks is not claimed, and its header-and-metadata features mean detection of application-layer web attacks is expected to be weak, a property of the feature set discussed in the results chapter. The serving target is a single-container backend with a static frontend, so distributed serving, load balancing, and high availability are out of scope.
+% TODO(verify-vs-code): the Supabase auth sentence below is not implemented yet
+% (see subsec:auth_persistence); revisit when auth lands.
+Authentication uses Supabase email/password, limited to identity verification with per-user isolation enforced by Postgres row-level security; the local-development Gradio UI does not authenticate. Finally, the deployed model is the one trained offline; the demo does not adapt to feedback during a session.

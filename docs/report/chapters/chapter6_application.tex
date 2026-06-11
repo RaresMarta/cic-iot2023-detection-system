@@ -1,7 +1,7 @@
 \chapter{Application Design, Implementation and Testing}
 \label{chap:design_implementation}
 
-\par This chapter covers the design and implementation of the application specified in Chapter~\ref{chap:requirements} and the testing that verifies the core functionality (per-flow classification of submitted traffic). It is organised top-down, starting from the architectural breakdown, moving through each component's design and the implementation choices that turn it into running code, and finishing with the testing strategy and the functional acceptance evidence.
+\par This chapter covers the design and implementation of the application specified in Chapter~\ref{chap:requirements} and the testing that verifies the core functionality (per-flow classification of submitted traffic). The machine learning core that the application serves (the data pipeline, the split strategies, and the model architecture and training procedure) was presented in Chapter~\ref{chap:ml_methodology}; this chapter is about everything built around it. It is organised top-down, starting from the architectural breakdown, moving through each component's design and the implementation choices that turn it into running code, and finishing with the testing strategy and the functional acceptance evidence.
 
 \section{Architectural Overview}
 \label{sec:architecture_overview}
@@ -20,124 +20,6 @@
 
 \par The artefact filenames encode both the split and the granularity in a uniform pattern. As a consequence, the web application can probe the artefact directory at startup, parse each filename, and instantiate one inference component per complete artefact triple it finds, with no hard-coded list of variants. Exposing a newly trained variant in the user interface is therefore purely a question of dropping its three files into the artefact directory and restarting the application.
 
-\section{Data Pipeline Design}
-\label{sec:data_pipeline_design}
-
-\par The training data pipeline performs a sequence of deterministic transformations from the raw per-folder CSVs to the train/validation/test tensors that feed the model. Each transformation is a separate pipeline phase so that intermediate state is inspectable.
-
-\subsection{Ingestion and Deduplication}
-\label{subsec:ingestion}
-
-\par For each of the attack folders, the pipeline lazily scans every CSV, projects only the feature columns plus a synthetic column that carries the source-capture filename, and concatenates the resulting lazy frames. Materialisation happens only after the projection, so the multi-tens-of-millions-of-rows corpus is never held in memory in its raw width.
-
-\par CICIoT2023 contains a substantial fraction of exact duplicate rows, a known property of the dataset and a recurring concern in the literature. Deduplication is applied immediately after concatenation, before any sampling. Deduplicating before sampling is essential: a folder where most rows are duplicated would otherwise have the same row repeated many times in the sample, which would inflate accuracy on the corresponding test rows. The quantitative impact of each pipeline stage (raw count, duplicates removed, unique rows, sampling cap applied) is reported in Chapter~\ref{chap:results} (Figure~\ref{fig:ingest_waterfall}).
-
-\subsection{Per-Class Subsampling}
-\label{subsec:subsampling}
-
-\par After deduplication, every folder whose deduplicated row count exceeds the per-class cap is randomly subsampled to that cap with a fixed seed. This brings the effective training-set size down from tens of millions of rows to a few million while keeping every attack class represented.
-
-\par The cap is set at the high end of the range used in the CICIoT2023 literature. Random sampling is preferred over taking the leading rows of each folder because each attack folder is a chronological concatenation of several capture sessions: the first $N$ rows come almost entirely from the first session, and a leading-rows sample would bias the model toward whatever happened in that opening session.
-
-\subsection{Caching}
-\label{subsec:caching}
-
-\par The deduplicated, subsampled, labelled rows are concatenated across folders and written to a single Zstandard-compressed columnar file. Subsequent runs skip ingestion and load from this cache directly. Regeneration is forced by deleting the cache file. This is documented inline so future runs do not silently use a stale cache after sampling logic changes.
-
-\subsection{Cleaning}
-\label{subsec:cleaning}
-
-\par The cleaning phase performs three operations on the materialised frame. First, null-label rows are dropped (defensive only; labels come from folder names, so this should be a no-op). Second, infinities are replaced with nulls; the actual median imputation is deferred to after the train/validation/test split so the medians are computed on the training partition only. Third, a $\log(1+x)$ transform is applied to the heavy-tailed continuous features (rates, total bytes, inter-arrival times). Binary protocol and flag indicators are excluded from the log transform.
-
-\subsection{Three Split Strategies}
-\label{subsec:split_strategies}
-
-\par Three splitting functions are defined and selected by configuration. Their design follows directly from the requirements in Section~\ref{subsec:pipeline_requirements}.
-
-\par \textbf{Random row split.} Two stratified splits in series produce 70/15/15 train/validation/test partitions, stratified by the fine-grained label so every class appears in every partition. This is reported only for parity with previously published numbers.
-
-\par \textbf{Per-capture split.} Two consecutive group-aware splits with the source-capture filename as the group identifier produce a 70/15/15 split where no source capture ever appears in more than one partition. This eliminates within-session redundancy leaking across the boundary, but preserves no temporal order.
-
-\par \textbf{Temporal split (headline).} For each attack folder, the source captures are sorted by filename and partitioned chronologically: the earliest 70\% become train, the next 15\% become validation, and the latest 15\% become test. Folders with fewer than three distinct source captures fall back to a row-level temporal split inside the folder. This mirrors deployment (train on past, test on future) and is the headline result reported in the thesis. The temporal F1 is expected to sit a few points below the random F1; that gap is the honest generalisation story.
-
-\subsection{Train-Only Preprocessing Fit}
-\label{subsec:train_fit_preprocess}
-
-\par For each split, column medians are computed on the training rows only, nulls in the train, validation, and test partitions are imputed using those medians, and the robust scaler is fitted on training rows alone before being applied to all three partitions. The robust scaler standardises each feature by its median and interquartile range rather than its mean and standard deviation:
-\begin{equation}
-    x' = \frac{x - \operatorname{median}(x)}{\mathrm{IQR}(x)}, \qquad \mathrm{IQR}(x) = Q_3(x) - Q_1(x),
-    \label{eq:robust_scaler}
-\end{equation}
-where $Q_1$ and $Q_3$ are the first and third quartiles estimated on the training rows. Centring on the median and dividing by the IQR makes the transform insensitive to the heavy upper tails of the CIC rate and byte-count features, which would otherwise dominate a mean/variance scaler. The contract that medians, quartiles, and the scaler are fitted strictly on training rows enforces NFR-3 (no test-set leakage) and is what makes the temporal-split metrics meaningful.
-
-\section{Model Architecture and Training}
-\label{sec:model_architecture}
-
-\subsection{MLP Topology}
-\label{subsec:mlp_topology}
-
-\par The model is a two-hidden-layer multi-layer perceptron with batch normalisation and dropout:
-
-\begin{equation*}
-    n_{\text{features}} \xrightarrow{\text{Linear}} 128 \xrightarrow{\text{BN, ReLU, Dropout}_{0.3}} 64 \xrightarrow{\text{BN, ReLU, Dropout}_{0.3}} n_{\text{classes}}
-\end{equation*}
-
-\par Batch normalisation, applied after each hidden linear layer, standardises that layer's pre-activations across the mini-batch to zero mean and unit variance before rescaling them by two learned parameters $(\gamma, \beta)$:
-\begin{equation}
-    \mathrm{BN}(z) = \gamma \, \frac{z - \mu_{\mathcal{B}}}{\sqrt{\sigma_{\mathcal{B}}^2 + \epsilon}} + \beta,
-    \label{eq:batchnorm}
-\end{equation}
-where $\mu_{\mathcal{B}}$ and $\sigma_{\mathcal{B}}^2$ are the per-feature mean and variance over the current batch $\mathcal{B}$ and $\epsilon$ is a small constant for numerical stability.
-
-\par The architecture is small for three reasons. Empirical studies of MLPs on tabular data report diminishing returns past two hidden layers when the input dimensionality is in the tens. Batch normalisation (Equation~\ref{eq:batchnorm}) is needed to stabilise training under the large class-weight range: at the fine-grained granularity the heaviest class weight is more than fifty times the lightest, and gradients without batch normalisation would oscillate. And the 0.3 dropout rate, more conservative than the common 0.5, generalises better on this dataset, where the cleaned training set is already several million rows.
-
-\subsection{Class-Weighted Cross-Entropy}
-\label{subsec:class_weighted_ce}
-
-\par Class weights are computed using the standard balanced-frequency rule applied to the encoded training labels, then passed to the cross-entropy loss. For a problem with $K$ classes, $N$ training samples, and $n_c$ samples in class $c$, the weight of class $c$ is
-\begin{equation}
-    w_c = \frac{N}{K \, n_c},
-    \label{eq:balanced_weights}
-\end{equation}
-so that rare classes receive proportionally larger weight (and $\sum_c n_c w_c = N$). These weights enter the multi-class cross-entropy loss applied to the softmax outputs $\hat{y}_{i,k}$:
-\begin{equation}
-    \mathcal{L} = -\frac{1}{N} \sum_{i=1}^{N} \sum_{k=1}^{K} w_{k}\, y_{i,k} \log\!\big(\hat{y}_{i,k}\big),
-    \label{eq:weighted_ce}
-\end{equation}
-where $y_{i,k}$ is the one-hot ground-truth indicator for sample $i$ and class $k$. Equation~\eqref{eq:weighted_ce} is the multi-class, class-weighted generalisation of the binary cross-entropy in Equation~\eqref{eq:bce_loss}. Weighting is preferred over resampling because SMOTE would generate synthetic flow vectors that have no operational meaning (a half-and-half SYN-flood / DNS-spoofing flow does not correspond to any real attack), and weighted batch sampling would be redundant with weighted cross-entropy.
-
-\subsection{Optimiser, Schedule, and Early Stopping}
-\label{subsec:training_loop}
-
-\par Training uses Adam with an initial learning rate of $10^{-3}$, paired with a learning-rate schedule that halves the rate after two consecutive epochs without validation-loss improvement. A separate early-stopping mechanism with a patience of five epochs caps total training. The batch size is 4096, large enough to amortise the batch-normalisation overhead and small enough to keep the per-step gradient meaningful.
-
-\par The training loop tracks training loss, validation loss, and the current learning rate per epoch, restoring the best validation-loss state at the end. The best state is what is serialised; the final-epoch state is discarded.
-
-\subsection{Hyperparameter Selection}
-\label{subsec:hpo}
-
-\par The architecture and optimisation settings above are not arbitrary: they were selected by an automated hyperparameter search rather than fixed by hand. A Tree-structured Parzen Estimator (TPE) sampler explores the search space summarised in Table~\ref{tab:hpo_space} over fifteen trials, each trained for ten epochs on a 100{,}000-row stratified subsample of the training set, with a median pruner terminating clearly unpromising trials early. The objective minimised is the validation loss. The search confirmed that a compact two-hidden-layer network with $[128, 64]$ units, $0.3$ dropout, ReLU activations, the Adam optimiser, and a $4096$ batch size is a strong configuration for this dataset; this configuration is then retrained to convergence (up to fifty epochs with early stopping) on the full training set and used for all reported results.
-
-\begin{table}[htbp]
-\begin{center}
-\begin{tabular}{|p{120pt}|p{200pt}|}
-\hline
-\textbf{Hyperparameter} & \textbf{Search range} \\
-\hline
-\hline Hidden layers & 2--4 \\
-\hline Units per layer & 64--512 (step 32) \\
-\hline Dropout & 0.1--0.5 \\
-\hline Activation & ReLU, ELU, LeakyReLU \\
-\hline Learning rate & $10^{-4}$--$10^{-2}$ (log scale) \\
-\hline Optimiser & Adam, AdamW \\
-\hline Batch size & 2048, 4096, 8192 \\
-\hline
-\end{tabular}
-\end{center}
-\caption{Optuna TPE search space for the MLP. Fifteen trials, ten epochs each on a 100{,}000-row subsample, validation loss as the objective, median pruning.}
-\label{tab:hpo_space}
-\end{table}
-
 \section{Inference Component Design}
 \label{sec:inference_layer}
 
@@ -150,6 +32,11 @@ where $y_{i,k}$ is the one-hot ground-truth indicator for sample $i$ and class $
 
 \subsection{Confidence and Label Decoding}
 \label{subsec:confidence_decoding}
+
+% TODO(internal-contradiction): the paragraph below says the confidence "is not a
+% calibrated probability", but demo/inference.py loads models/temperature_scaling.joblib
+% and applies softmax(logits / T), and the abstract + results chapter describe the
+% served confidence as temperature-scaled. Update this paragraph to match the code.
 
 \par The model emits logits; a softmax along the class dimension produces per-class probabilities; the argmax selects the predicted class index; the encoder's inverse transform maps the index back to the human-readable label. The maximum softmax probability is reported as confidence. This confidence is not a calibrated probability; it is shown because users expect a numeric score beside each verdict, and the maximum softmax value is a simple proxy for one.
 
@@ -173,6 +60,13 @@ where $y_{i,k}$ is the one-hot ground-truth indicator for sample $i$ and class $
 \subsection{Frontend: NEURAL IDS React Dashboard}
 \label{subsec:frontend_react}
 
+% TODO(verify-vs-code): the three model cards exist in the frontend
+% (ids-frontend/src/app/data/models.ts), but the backend only discovers and
+% serves PyTorch MLP variants (demo/app.py discover_predictors globs
+% 'ids_dnn_*_*class.pth'); no RF/XGBoost artefacts are saved in models/ and the
+% model_type field of /api/classify is echoed back, not used for model
+% selection. Either implement RF/XGBoost serving or reword this paragraph.
+
 \par The React frontend connects to the REST endpoint and presents a polished cyberpunk-themed dashboard under the branding \emph{NEURAL IDS}. Its main screen (Figure~\ref{fig:app_dashboard}) presents three model-selection cards (MLP Neural Network, Random Forest, XGBoost) that set the \texttt{model\_type} field of subsequent API calls, and an analysis history table that persists the timestamp, model label, filename, dominant predicted class, and confidence of every classification run, scoped to the signed-in user and retained across sessions (Section~\ref{subsec:auth_persistence}).
 
 \par On submission, the frontend calls \texttt{POST /api/classify} with the selected model type, split, and mode parameters. The backend routes the request through the corresponding artefact triple and returns the prediction result. The frontend renders the result on a dedicated analysis screen (Figure~\ref{fig:app_attack}) displaying a confidence gauge, a ranked probability bar chart for all classes, per-request metadata (model, mode, split, flow count, processing time), and a flow-count breakdown by predicted label.
@@ -184,6 +78,12 @@ where $y_{i,k}$ is the one-hot ground-truth indicator for sample $i$ and class $
 
 \subsection{Authentication and Result Persistence}
 \label{subsec:auth_persistence}
+
+% TODO(verify-vs-code): the Supabase schema with RLS policies exists
+% (ids-frontend/supabase_schema.sql), but the frontend has no @supabase/supabase-js
+% dependency and Login/Register pages carry no auth logic — authentication and
+% history persistence are NOT functional yet (being wired separately). Revisit
+% this whole subsection once that lands.
 
 \par The deployed frontend communicates with two independent backends, and that separation is the central design decision of the serving tier (Figure~\ref{fig:deployment_topology}). The first is the \emph{stateless inference channel}: the React single-page application issues a cross-origin \texttt{POST /api/classify} to the FastAPI endpoint on Hugging Face Spaces (Section~\ref{subsec:backend_gradio_fastapi}) and receives a JSON verdict. That backend holds no database and retains nothing about the user between requests. It is the artefact-driven predictor described throughout this chapter, merely reached over HTTPS. The second is the \emph{stateful identity-and-history channel}: the same application talks directly to a managed Supabase project for authentication and for persisting the user's past results. Inference and identity are therefore fully decoupled: either backend can be replaced without touching the other, and an inference request never blocks on the persistence layer.
 
@@ -198,7 +98,7 @@ where $y_{i,k}$ is the one-hot ground-truth indicator for sample $i$ and class $
 
 \begin{figure}[htbp]
     \centering
-    \resizebox{0.82\textwidth}{!}{%
+    \resizebox{0.72\textwidth}{!}{%
     \begin{tikzpicture}[
         node distance=1.8cm and 2.2cm,
         box/.style={
@@ -265,11 +165,6 @@ where $y_{i,k}$ is the one-hot ground-truth indicator for sample $i$ and class $
 
 \par For every (split, granularity) pair, after training, the pipeline reloads the freshly written artefacts using the exact code path the demo uses and predicts on the test partition. The reloaded predictions are compared against the in-memory predictions of the still-loaded model. The two must agree exactly. This test caught two real bugs during development: a column-ordering drift between training and inference, and a silent dtype mismatch when arrays were converted to tensors without an explicit precision cast.
 
-\subsection{Latency Benchmark}
-\label{subsec:latency_benchmark}
-
-\par For each trained model, the benchmark loop runs $10{,}000$ inference passes per batch size in $\{1, 32, 256, 1024\}$ on CPU after a warmup of one hundred passes, with the timer wrapped around the feature scaling step \emph{and} the model forward pass. The pipeline reports the p50, p95, and p99 of the per-batch latency in milliseconds and the implied flows-per-second throughput. NFR-1 (sub-100~ms p95 end-to-end on a consumer laptop CPU at any of those batch sizes) is the acceptance criterion.
-
 \subsection{Functional Acceptance Test: Capture to Verdict}
 \label{subsec:f1_functional_test}
 
@@ -290,13 +185,21 @@ where $y_{i,k}$ is the one-hot ground-truth indicator for sample $i$ and class $
 \section{Functional Acceptance Evidence}
 \label{sec:f1_acceptance_evidence}
 
+% TODO(verify-vs-code): (1) the acceptance files on disk are
+% data/samples/sample_benign_browsing.csv and data/samples/sample_syn_flood.csv,
+% not demo_benign.csv / demo_syn_flood.csv — align the names. (2) The claim below
+% and the Figure~\ref{fig:app_attack} caption say the SYN flood was classified
+% under an "8-class Random Forest variant", but no RF model is saved or servable
+% by the backend (MLP-only discovery in demo/app.py) — the screenshot cannot come
+% from an RF model. Rewrite once the model story is settled.
+
 \par The functional acceptance test specified in Section~\ref{subsec:f1_functional_test} was executed against the deployed serving subsystem using both the local Gradio interface and the NEURAL IDS React dashboard. Two pre-extracted feature CSVs with known ground-truth labels were submitted: \texttt{demo\_benign.csv} (normal browsing traffic captured on the demo machine and converted to CIC features) and \texttt{demo\_syn\_flood.csv} (a SYN-flood attack directed at a local target, converted via the same flow-extraction tool). Figure~\ref{fig:app_dashboard} shows the NEURAL IDS dashboard after all four acceptance runs have been completed, with the full analysis history visible in the main panel.
 
 \par The history confirms both halves of the acceptance criterion. For \texttt{demo\_syn\_flood.csv}, the binary temporal-split MLP labelled every flow (100\%) as Attack with a mean calibrated confidence of 99.6\%, and a subsequent run of the same file under the 8-class variant confirmed DoS as the dominant family, both correct. For \texttt{demo\_benign.csv}, the binary MLP returned Benign on 98\% of flows (mean dominant-class confidence 71.9\%), so the fraction labelled Benign exceeds the 95\% threshold defined in Section~\ref{subsec:f1_functional_test}, discharging the no-false-alarm half of the criterion. (Confidence values report the mean softmax probability of the dominant class after temperature scaling, not the fraction of flows in that class.)
 
 \begin{figure}[htbp]
     \centering
-    \includegraphics[width=0.78\textwidth]{figures/app_dashboard.png}
+    \includegraphics[width=0.62\textwidth]{figures/app_dashboard.png}
     \caption{NEURAL IDS dashboard after the acceptance runs. The analysis history table records four classification requests: the SYN-flood capture classified as Attack (near-certain binary confidence) and as DoS ($\approx$55\%) under different granularities, and the benign capture classified as Benign. The three model-selection cards at the top set the \texttt{model\_type} field of subsequent API calls. (Screenshot is illustrative; binary confidence is reported after temperature scaling in the text.)}
     \label{fig:app_dashboard}
 \end{figure}
@@ -305,7 +208,7 @@ where $y_{i,k}$ is the one-hot ground-truth indicator for sample $i$ and class $
 
 \begin{figure}[htbp]
     \centering
-    \includegraphics[width=0.50\textwidth]{figures/app_attack.png}
+    \includegraphics[width=0.42\textwidth]{figures/app_attack.png}
     \caption{Functional acceptance: SYN-flood capture classified under the temporal-split 8-class Random Forest variant. The alert banner confirms a threat detection; the class-probability panel ranks DoS (55\%) above DDoS (45\%), correctly identifying the single-source flood family. Analysis metadata (50 flows, 8~ms processing time) are shown in the lower panel.}
     \label{fig:app_attack}
 \end{figure}
