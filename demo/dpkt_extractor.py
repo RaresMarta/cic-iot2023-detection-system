@@ -70,6 +70,7 @@ def _packet_record(ts: float, buf: bytes):
     elif isinstance(l4, dpkt.udp.UDP):
         rec['udp'] = 1; rec['sport'] = l4.sport; rec['dport'] = l4.dport
         rec['hdr'] = ip_hdr + 8
+
     return rec
 
 
@@ -82,6 +83,7 @@ def _window_features(pkts: list) -> dict:
     has = lambda port: sum(1 for p in pkts if p['sport'] == port or p['dport'] == port) / n
     frac = lambda key: sum(p['flags'][key] for p in pkts) / n
     count = lambda key: float(sum(p['flags'][key] for p in pkts))
+
     return {
         'Header_Length': float(np.mean([p['hdr'] for p in pkts])),
         'Protocol Type': float(np.mean([p['proto'] for p in pkts])),
@@ -119,12 +121,14 @@ def extract_features(pcap_path: str | Path, window: int = 10, include_partial: b
         if len(buckets[key]) >= window:
             rows.append(_window_features(buckets[key]))
             buckets[key] = []
+
     if include_partial:
         for pkts in buckets.values():
             if len(pkts) >= 2:
                 rows.append(_window_features(pkts))
     if not rows:
         return pl.DataFrame(schema={c: pl.Float64 for c in feature_columns})
+
     return pl.DataFrame(rows).select(feature_columns)
 
 

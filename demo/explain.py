@@ -26,7 +26,7 @@ class FlowExplainer:
         per = max(1, background_size // len(sampler.families))
         frames = [sampler.sample_flows(f, n=per, seed=seed) for f in sampler.families]
         bg_scaled = predictor.preprocess(pl.concat(frames)).astype(np.float32)
-        bg_tensor = torch.from_numpy(bg_scaled).to(predictor.device)
+        bg_tensor = torch.from_numpy(bg_scaled).to(predictor.device).cpu().numpy()
 
         predictor.model.eval()
         self.explainer = shap.GradientExplainer(predictor.model, bg_tensor)
@@ -43,6 +43,7 @@ class FlowExplainer:
             return sv[0, :, class_idx]
         if sv.ndim == 2:                         # [1, n_features]
             return sv[0]
+
         return sv.reshape(-1)[:n]
 
     def explain(self, x_scaled: np.ndarray, raw_values: dict, pred_class_idx: int,
@@ -67,6 +68,7 @@ class FlowExplainer:
                 'shap': float(contrib[i]),
                 'direction': direction,
             })
+
         return out
 
 

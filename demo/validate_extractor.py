@@ -33,7 +33,7 @@ def _frame(src, dst, sport, dport, proto='tcp', flags=0, ttl=64, payload=b'') ->
         ipp = dpkt.ip.IP_PROTO_TCP
     else:
         l4 = dpkt.udp.UDP(sport=sport, dport=dport, data=payload)
-        l4.ulen = len(l4)
+        l4.ulen = len(l4)  # type: ignore[attr-defined]
         ipp = dpkt.ip.IP_PROTO_UDP
     ip = dpkt.ip.IP(src=socket.inet_aton(src), dst=socket.inet_aton(dst), p=ipp, ttl=ttl, data=l4)
     ip.len = len(ip)

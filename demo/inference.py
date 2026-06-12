@@ -66,6 +66,7 @@ class IDSPredictor:
 
         X = df.to_numpy().astype(np.float32)
         X = np.where(np.isnan(X), 0.0, X)
+
         return self.scaler.transform(X).astype(np.float32)
 
     def predict(self, df: pl.DataFrame) -> dict:
@@ -73,8 +74,10 @@ class IDSPredictor:
         with torch.no_grad():
             logits = self.model(torch.from_numpy(X).to(self.device))
             probs  = torch.softmax(logits / self.temperature, dim=1).cpu().numpy()
+
         preds  = probs.argmax(axis=1)
         labels = self.encoder.inverse_transform(preds)
+
         return {
             'labels':      labels,
             'confidences': probs.max(axis=1),

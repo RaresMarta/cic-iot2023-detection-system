@@ -38,7 +38,7 @@ def _tcp(sport: int, dport: int, flags: int, payload: bytes = b'') -> dpkt.tcp.T
 
 def _udp(sport: int, dport: int, payload: bytes = b'') -> dpkt.udp.UDP:
     u = dpkt.udp.UDP(sport=sport, dport=dport, data=payload)
-    u.ulen = len(u)
+    u.ulen = len(u)  # type: ignore[attr-defined]
     return u
 
 

@@ -19,10 +19,9 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-# Reuse the validated parser + feature math — do NOT reimplement.
-from demo.dpkt_extractor import _packet_record, _window_features  # noqa: E402
+from demo.dpkt_extractor import _packet_record, _window_features
 
-from . import config  # noqa: E402
+from . import config
 
 
 def _ip_str(raw: bytes) -> str:
@@ -34,14 +33,15 @@ def _ip_str(raw: bytes) -> str:
             return socket.inet_ntop(socket.AF_INET6, raw)
     except (OSError, ValueError):
         pass
+
     return raw.hex()
 
 
 @dataclass
 class WindowResult:
-    features: dict          # the 25 CIC-IoT-2023 features (model input)
-    ip_a: str               # one endpoint of the host pair
-    ip_b: str               # the other endpoint
+    features: dict
+    ip_a: str
+    ip_b: str
     n_packets: int
     ts_start: float
     ts_end: float
@@ -66,15 +66,18 @@ class StreamWindower:
         rec = _packet_record(ts, buf)
         if rec is None:
             return None
+
         key = frozenset((rec['src'], rec['dst']))
         bucket = self._buckets.get(key)
         if bucket is None:
             bucket = self._buckets[key] = _Bucket()
+
         bucket.pkts.append(rec)
         bucket.last_seen = ts
         if len(bucket.pkts) >= self.window:
             del self._buckets[key]
             return self._result(bucket.pkts)
+
         return None
 
     def flush_idle(self, now: float) -> list[WindowResult]:
@@ -82,10 +85,12 @@ class StreamWindower:
         out: list[WindowResult] = []
         stale = [k for k, b in self._buckets.items()
                  if now - b.last_seen >= self.idle_flush_s]
+
         for key in stale:
             bucket = self._buckets.pop(key)
             if len(bucket.pkts) >= self.min_partial:
                 out.append(self._result(bucket.pkts))
+
         return out
 
     @staticmethod
@@ -94,6 +99,7 @@ class StreamWindower:
         ip_a = _ip_str(pkts[0]['src'])
         ip_b = _ip_str(pkts[0]['dst'])
         ts = [p['ts'] for p in pkts]
+
         return WindowResult(
             features=feats, ip_a=ip_a, ip_b=ip_b,
             n_packets=len(pkts), ts_start=min(ts), ts_end=max(ts),

@@ -78,10 +78,10 @@ class LiveCapture(PacketSource):
         self._sock = None
 
     def _open(self):
-        import socket  # Linux AF_PACKET; import here so macOS dev never needs it
+        import socket
         import time
         ETH_P_ALL = 0x0003
-        sock = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.htons(ETH_P_ALL))
+        sock = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.htons(ETH_P_ALL))  # type: ignore[attr-defined]
         # The bridge interface may appear a moment after the container starts
         # (docker creates idsnet/ids-br0 around the same time). Retry the bind.
         deadline = time.time() + 30
@@ -104,12 +104,13 @@ class LiveCapture(PacketSource):
             self._open()
         while True:
             try:
-                buf = self._sock.recv(self.snaplen)
+                buf = self._sock.recv(self.snaplen)  # type: ignore[union-attr]
             except socket.timeout:
                 yield IDLE_TICK         # let the consumer flush idle windows
                 continue
             except OSError:
                 break
+
             yield time.time(), buf
 
     def close(self) -> None:
@@ -127,4 +128,5 @@ def from_config():
         raise SystemExit('IDS_SOURCE=replay requires IDS_PCAP=<path to pcap>')
     import os
     loop = os.environ.get('IDS_PCAP_LOOP', '0') == '1'
+
     return PcapReplay(config.PCAP_PATH, realtime=config.PCAP_REALTIME, loop=loop)
