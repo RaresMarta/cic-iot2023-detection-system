@@ -7,6 +7,6 @@ joblib
 matplotlib
 seaborn
 xgboost
-gradio
 wandb
 optuna
+shap

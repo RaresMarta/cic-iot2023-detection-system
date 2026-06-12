@@ -6,7 +6,6 @@ numpy
 scikit-learn
 joblib
 xgboost
-gradio
 uvicorn[standard]
 fastapi
 python-multipart
