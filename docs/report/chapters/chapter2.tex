@@ -1,40 +1,14 @@
 \chapter{Theoretical Background}
 \label{chap:theoretical_background}
 
-\par This chapter presents the theoretical foundations underlying the work developed in this thesis. It begins with an overview of intrusion detection systems and their role in network security, then introduces deep learning as a tool for traffic classification, with a focus on multi-layer perceptrons. Finally, it describes the CICIoT2023 dataset, which serves as the training and evaluation basis for the models developed in subsequent chapters.
+\par This chapter presents the theoretical foundations underlying the work developed in this thesis. It starts from what network traffic is and how it is monitored, continues with an overview of intrusion detection systems and their role in network security, then introduces deep learning as a tool for traffic classification, with a focus on multi-layer perceptrons. Finally, it describes the CICIoT2023 dataset, which serves as the training and evaluation basis for the models developed in subsequent chapters.
 
-% ============================================================================
-% TODO(restructure): planned new opening sections, so the chapter reads as a
-% linear journey from networking basics to IDS (sources: Fortinet cyberglossary,
-% Cloudflare Learning — add proper @misc bib entries):
-%
-% \section{Network Traffic and Packet-Based Communication}
-%   - what network traffic is: data packets between devices across a network
-%   - how an HTTP request is broken into packets as it moves through the layers
-%   - north-south (client-server) vs east-west (server-server) traffic
-%
-% \section{Network Monitoring}
-%   - continuous observation/analysis of traffic and performance
-%   - identifying patterns, anomalies, potential threats -> bridge to IDS
-%
-% \section{Cybersecurity Context}  (could merge into the section above)
-%   - protecting systems/networks/apps/data from attacks and unauthorised access
-%   - AI on both sides: attackers (phishing at scale, automated exploits) vs
-%     defenders (better detection, faster response)
-%
-% (existing \section{Intrusion Detection Systems} follows here)
-%
-% \subsection{Detection versus Prevention: IDS and IPS}  (inside the IDS section)
-%   - IDS observes and alerts (beside the path); IPS sits inline and blocks
-%   - correlations and differences; where this project sits
-%
-% \subsection{Limits of Endpoint Response}  (inside the IDS section, short)
-%   - bandwidth is spent before the receiving host has any say: dropping a
-%     packet at the local firewall does not refund the bandwidth it consumed
-%     on the wire; a 50 Gbps flood saturates a 1 Gbps link upstream of any
-%     local rule -> motivates on-premises vs cloud/upstream mitigation, and
-%     scopes what host-level active response can and cannot achieve
-% ============================================================================
+\section{Network Traffic and Monitoring}
+\label{sec:network_traffic}
+
+\par Network traffic consists of data packets transmitted between devices across a network. Data does not travel as one solid block: when a client issues an HTTP request, the request is broken into packets as it moves down through the network layers, each packet carrying header information (addresses, ports, protocol flags) and a fragment of the payload, routed independently and reassembled at the destination \cite{CloudflarePacket}. By direction, traffic is commonly described as north--south (between clients and servers, crossing the network boundary) or east--west (between servers inside the network). The header and timing statistics of these packets, their sizes, rates, flags, and inter-arrival times, are the raw material from which the flow features used in this thesis are derived.
+
+\par Network monitoring is the continuous observation and analysis of a network's traffic and performance. Beyond its operational goals, it underpins cybersecurity, the practice of protecting systems, networks, applications, and data from digital attacks and unauthorised access \cite{FortinetCybersecurity}: monitored traffic is examined for patterns, anomalies, and potential security threats. Artificial intelligence is reshaping this field on both sides, with attackers using it to scale phishing, generate deepfakes, and automate exploits, and defenders using it to improve detection and accelerate response. The intrusion detection systems discussed next are the monitoring components dedicated to that defensive role.
 
 \section{Intrusion Detection Systems}
 \label{sec:ids}
@@ -113,6 +87,13 @@
 
 \par From a machine learning perspective, intrusion detection maps naturally to classification. In its simplest form, the task is binary: distinguish benign traffic from malicious flows. Multi-class setups are also common, with systems trained to recognize distinct categories of attacks such as DDoS, denial-of-service, reconnaissance, or botnet activity. The input is typically tabular flow data, where each flow is described by numerical features such as packet counts, byte rates, and TCP flag statistics \cite{Sharafaldin2018}.
 
+\subsection{Detection versus Prevention: IDS and IPS}
+\label{subsec:ids_vs_ips}
+
+\par Intrusion \emph{detection} and intrusion \emph{prevention} systems share the same analysis techniques but differ in placement and authority. An IDS observes a copy of the traffic from beside the path and raises alerts, leaving the response to an operator or another system. An Intrusion Prevention System (IPS) sits inline, in the path itself, and can drop malicious packets before they reach their target \cite{FortinetIPS}. Inline authority comes at a price: a false positive now blocks legitimate traffic, and the IPS adds latency and a point of failure to every packet it forwards. A common middle ground is to detect beside the path and respond by installing a firewall rule against the offending source, which stops the remainder of an attack without taking inline risk.
+
+\par Any response local to the protected host also runs into a physical limit: bandwidth is consumed before the host has any say. Dropping a packet at the local firewall is free, but the bandwidth that packet spent travelling the wire is already gone. If a botnet directs tens of gigabits per second at a server on a one-gigabit link, even a perfect and instantaneous blocking rule cannot help: the flood saturates the link upstream of the host's authority, and legitimate packets are lost before the kernel ever sees them. Volumetric attacks are therefore ultimately mitigated upstream, by the network provider or by cloud-based mitigation services \cite{CloudflareDDoS}, while host-level detection and response remain effective against attacks that fit within the link, such as scans, brute-force attempts, and application-layer abuse.
+
 \subsection{Key Challenges}
 \label{subsec:ids_challenges}
 
@@ -168,9 +149,7 @@ using backpropagation and an optimizer such as Adam \cite{Vinayakumar2019}.
 \subsection{Testbed and Data Collection}
 \label{subsec:testbed}
 
-\par The dataset was generated in a physical laboratory environment simulating a realistic smart home network. The testbed consists of \textbf{105 real IoT devices}, including smart cameras, speakers, plugs, lights, sensors, and home automation controllers from various manufacturers. Of these, 67 devices are directly involved in attack scenarios as either attackers or victims, while 38 Zigbee/Z-Wave devices are connected through 5 hubs.
-
-\par The attack infrastructure uses 7 Raspberry Pi 4 devices configured as attackers. For distributed attacks (DDoS), multiple Raspberry Pis coordinate via an SSH-based master-client configuration. Network traffic is passively captured using a Gigamon network tap and two monitoring stations running Wireshark, producing approximately 548 GB of raw PCAP data.
+\par The dataset was generated in a physical laboratory simulating a realistic smart-home network of \textbf{105 real IoT devices} (smart cameras, speakers, plugs, lights, sensors, and home-automation hubs), of which 67 are directly involved in attack scenarios as attackers or victims. Attacks are launched from 7 Raspberry Pi devices, coordinated over SSH for the distributed scenarios, and traffic is captured passively at a network tap, producing approximately 548 GB of raw PCAP data.
 
 \par Feature extraction is performed using \textbf{DPKT}, a Python packet parsing library. Unlike CICFlowMeter (used in earlier CIC datasets such as CICIDS2017), DPKT operates at the packet level with a fixed-size packet window, computing features over a sequence of consecutive packets between two hosts rather than per-flow. This approach offers finer granularity and is more suitable for real-time detection, as features can be computed as soon as enough packets in the window are observed, without waiting for a flow to terminate \cite{CICIoT2023}.
 
@@ -202,7 +181,7 @@ using backpropagation and an optimizer such as Adam \cite{Vinayakumar2019}.
 \subsection{Feature Set}
 \label{subsec:features}
 
-\par The original CICIoT2023 paper describes a 46-feature representation produced by the DPKT-based extractor used during dataset construction. These features fall into eight groups: three flow-timing features (flow duration, time-to-live, and inter-arrival time with the prior packet); three rate and throughput features (overall, source, and destination packet rates); two header and protocol features (header length and protocol type); seven binary TCP flag indicators (FIN, SYN, RST, PSH, ACK, ECE, CWR); five packet-count features (ACK, SYN, FIN, URG, RST counts); fourteen binary protocol indicators (HTTP, HTTPS, DNS, Telnet, SMTP, SSH, IRC, TCP, UDP, DHCP, ARP, ICMP, IPv, LLC); six packet-length statistics (sum, minimum, maximum, average, standard deviation, and individual length); and six aggregate statistics (packet count in flow, magnitude, radius, covariance, variance, and weight) derived from combined incoming and outgoing packet statistics.
+\par The original CICIoT2023 paper describes a 46-feature representation produced by the DPKT-based extractor. The features cover flow timing (duration, time-to-live, inter-arrival time), packet rates, header and protocol information, binary TCP-flag indicators and flag counts, binary protocol indicators (HTTP, HTTPS, DNS, TCP, UDP, and others), packet-length statistics, and aggregate statistics computed over the combined incoming and outgoing packets of a window.
 
 \par At the time of writing, the publicly available CSV release distributed by the Canadian Institute for Cybersecurity contains a \textbf{39-feature subset} of the 46 features described in the paper. Specifically, the public CSV omits the source and destination rate features, the URG packet count, and four of the six aggregate statistics (\emph{Magnitude}, \emph{Radius}, \emph{Covariance}, and \emph{Weight}). The 39-feature version is the basis for all experiments and the live demonstration in this thesis. This is acknowledged as a deliberate scope decision: results in this work are not numerically directly comparable to papers that report on the full 46-feature variant, and that gap is part of the methodological story rather than an oversight.
 
@@ -235,9 +214,4 @@ using backpropagation and an optimizer such as Adam \cite{Vinayakumar2019}.
 \label{tab:dataset_comparison}
 \end{table}
 
-\par CICIoT2023 offers several advantages over older benchmarks: it is significantly larger, contains more diverse and modern attack types (including IoT-specific attacks such as Mirai botnet variants), and uses real IoT hardware rather than simulated traffic generators. Its primary limitations include the lack of encrypted traffic analysis, the restriction to a smart home IoT context (excluding industrial or medical IoT), and the fact that attacks are executed individually rather than as multi-stage campaigns \cite{CICIoT2023}.
-
-\subsection{Known Limitations}
-\label{subsec:dataset_limitations}
-
-\par Several limitations of the CICIoT2023 dataset should be acknowledged. The attacks are executed in a controlled laboratory setting, so although real IoT devices are used, the dataset does not capture the way real attackers combine techniques, adapt, and conceal their actions. The features are extracted from packet headers and metadata: HTTPS is flagged as a binary indicator, but there are no features derived from encrypted-payload inspection, which limits generalisability as IoT traffic becomes increasingly encrypted. The testbed represents a single smart-home domain, so models may not transfer to industrial or healthcare IoT. The class imbalance is severe, with the most extreme ratio exceeding 5,000:1, and requires careful handling in both training and evaluation. Finally, the exact formulas for some derived features (Magnitude, Radius, Covariance, Variance, Weight) are not fully documented in the original paper.
+\par CICIoT2023 offers several advantages over older benchmarks: it is significantly larger, contains more diverse and modern attack types (including IoT-specific Mirai variants), and uses real IoT hardware rather than simulated traffic generators. Its limitations should equally be acknowledged \cite{CICIoT2023}. Attacks are executed individually in a controlled laboratory, not as the multi-stage, adaptive campaigns of real attackers. The features come from packet headers and metadata only, with no encrypted-payload inspection, which matters as IoT traffic becomes increasingly encrypted. The single smart-home domain limits transfer to industrial or healthcare IoT, the class imbalance is severe (Section~\ref{subsec:dataset_stats}), and the exact formulas of some derived features (Magnitude, Radius, Covariance, Variance, Weight) are not fully documented in the original paper.
