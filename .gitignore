@@ -27,3 +27,6 @@ _results_full.joblib
 _results_summary.json
 _paper_numbers.json
 models_backup_39feat/
+
+# macOS
+**/.DS_Store
