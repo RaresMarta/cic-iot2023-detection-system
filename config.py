@@ -13,10 +13,7 @@ MODELS_DIR.mkdir(exist_ok=True)
 # Data
 MAX_ROWS_PER_CLASS = 200_000
 
-# Full 39-feature public CICIoT2023 column set. The notebook's EDA prunes this to
-# 25 (dropping 12 near-zero-variance flags + 2 redundant continuous features) at
-# run time; the trained model and the demo use that reduced 25-feature set, whose
-# exact ordering is persisted in models/feature_columns.joblib.
+# 39-feature public CICIoT2023 column set
 X_COLUMNS = [
     'Header_Length', 'Protocol Type', 'Time_To_Live', 'Rate',
     'fin_flag_number', 'syn_flag_number', 'rst_flag_number',
@@ -28,8 +25,7 @@ X_COLUMNS = [
     'Tot size', 'IAT', 'Number', 'Variance',
 ]
 Y_COLUMN = 'Label'
-N_FEATURES = len(X_COLUMNS)  # 39; reduced to 25 after feature selection in notebook
-
+N_FEATURES = len(X_COLUMNS)
 FLAG_COLUMNS = [
     'fin_flag_number', 'syn_flag_number', 'rst_flag_number',
     'psh_flag_number', 'ack_flag_number', 'ece_flag_number',
@@ -38,6 +34,32 @@ FLAG_COLUMNS = [
     'IPv', 'LLC',
 ]
 LOG_COLUMNS = [c for c in X_COLUMNS if c not in FLAG_COLUMNS]
+
+# Feature selection (39 -> 25), justified by the notebook's EDA
+DROPPED_REDUNDANT = [
+    'Tot size',
+    'Variance',
+]
+DROPPED_LOW_VAR = [
+    'ece_flag_number',
+    'cwr_flag_number',
+    'IGMP',
+    'IRC',
+    'Telnet',
+    'SMTP',
+    'DHCP',
+    'SSH',
+    'ICMP',
+    'ARP',
+    'LLC',
+    'IPv',
+]
+DROPPED_FEATURES = set(DROPPED_REDUNDANT + DROPPED_LOW_VAR)
+
+X_COLUMNS_SELECTED = [c for c in X_COLUMNS if c not in DROPPED_FEATURES]
+FLAG_COLUMNS_SELECTED = [c for c in FLAG_COLUMNS if c not in DROPPED_FEATURES]
+LOG_COLUMNS_SELECTED = [c for c in X_COLUMNS_SELECTED if c not in FLAG_COLUMNS_SELECTED]
+N_FEATURES_SELECTED = len(X_COLUMNS_SELECTED)  # 25
 
 # Tasks & splits
 MODES_TO_RUN = ['2', '8']

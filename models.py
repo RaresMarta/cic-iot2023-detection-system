@@ -2,6 +2,8 @@
 
 import torch
 import torch.nn as nn
+from torch.amp.autocast_mode import autocast
+from torch.amp.grad_scaler import GradScaler
 from torch.utils.data import Dataset
 import numpy as np
 from sklearn.metrics import (
@@ -39,7 +41,7 @@ class IDSModel(nn.Module):
     """Variable-depth MLP with BatchNorm and Dropout per layer."""
 
     def __init__(self, n_features: int, n_classes: int,
-                 hidden_sizes: list = None,
+                 hidden_sizes: list | None = None,
                  dropout: float = 0.3,
                  activation: str = 'relu'):
         super().__init__()
@@ -79,7 +81,7 @@ def train_model(model: nn.Module, train_loader, val_loader,
         optimizer, mode='min', factor=0.5, patience=2,
     )
     use_amp = device.type == 'cuda'
-    scaler = torch.amp.GradScaler('cuda', enabled=use_amp)
+    scaler = GradScaler('cuda', enabled=use_amp)
 
     best_val_loss = float('inf')
     best_state = None
@@ -92,7 +94,7 @@ def train_model(model: nn.Module, train_loader, val_loader,
         for Xb, yb in train_loader:
             Xb, yb = Xb.to(device, non_blocking=True), yb.to(device, non_blocking=True)
             optimizer.zero_grad()
-            with torch.amp.autocast('cuda', enabled=use_amp):
+            with autocast('cuda', enabled=use_amp):
                 loss = criterion(model(Xb), yb)
             scaler.scale(loss).backward()
             scaler.step(optimizer)
@@ -105,7 +107,7 @@ def train_model(model: nn.Module, train_loader, val_loader,
         with torch.no_grad():
             for Xb, yb in val_loader:
                 Xb, yb = Xb.to(device, non_blocking=True), yb.to(device, non_blocking=True)
-                with torch.amp.autocast('cuda', enabled=use_amp):
+                with autocast('cuda', enabled=use_amp):
                     loss = criterion(model(Xb), yb)
                 running += loss.item() * Xb.size(0)
         val_loss = running / len(val_loader.dataset)
@@ -137,7 +139,9 @@ def train_model(model: nn.Module, train_loader, val_loader,
             if trial.should_prune():
                 raise __import__('optuna').exceptions.TrialPruned()
 
-    model.load_state_dict(best_state)
+    if best_state is not None:  # set on the first epoch; guards the type checker
+        model.load_state_dict(best_state)
+
     return model, history
 
 
@@ -153,6 +157,7 @@ def evaluate(model: nn.Module, test_loader, class_names: list,
             labels.append(yb.numpy())
     y_pred = np.concatenate(preds)
     y_true = np.concatenate(labels)
+
     return {
         'accuracy': accuracy_score(y_true, y_pred),
         'macro_f1': f1_score(y_true, y_pred, average='macro', zero_division=0),

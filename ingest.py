@@ -2,9 +2,10 @@
 from __future__ import annotations
 
 from pathlib import Path
-
+from matplotlib.figure import Figure
 import matplotlib.pyplot as plt
 import polars as pl
+from matplotlib.ticker import FuncFormatter
 
 
 def run_ingest(
@@ -18,11 +19,11 @@ def run_ingest(
     """Scan every attack folder, deduplicate, subsample, and return collected frames.
 
     Returns:
-        frames        – list of per-folder polars DataFrames
-        total_raw     – raw row count across all folders
-        total_unique  – after deduplication
-        total_kept    – after sampling cap
-        class_stats   – {folder_name: rows_kept}
+        frames        - list of per-folder polars DataFrames
+        total_raw     - raw row count across all folders
+        total_unique  - after deduplication
+        total_kept    - after sampling cap
+        class_stats   - {folder_name: rows_kept}
     """
     frames: list[pl.DataFrame] = []
     total_raw = total_unique = total_kept = 0
@@ -68,7 +69,7 @@ def plot_waterfall(
     total_kept: int,
     max_rows_per_class: int,
     n_folders: int,
-) -> plt.Figure:
+) -> Figure:
     """Return a waterfall figure showing the data-reduction stages."""
     total_dupes  = total_raw - total_unique
     sampling_cut = total_unique - total_kept
@@ -102,16 +103,18 @@ def plot_waterfall(
     for v, total in zip(values, is_total):
         running = v if total else running + v
         tops.append(running)
+
     for i in range(len(tops) - 1):
         ax.plot([i + 0.4, i + 0.6], [tops[i], tops[i]], "k--", linewidth=0.7)
 
     annotations = [
         f"{total_raw:,}",
-        f"−{total_dupes:,}\n({dupe_pct:.1f}% of raw)",
+        f"-{total_dupes:,}\n({dupe_pct:.1f}% of raw)",
         f"{total_unique:,}",
-        f"−{sampling_cut:,}\n({sample_pct:.1f}% of unique)",
+        f"-{sampling_cut:,}\n({sample_pct:.1f}% of unique)",
         f"{total_kept:,}\ncap {max_rows_per_class:,}/class",
     ]
+
     for bar, bottom, height, text in zip(bars, bottoms, heights, annotations):
         ax.text(
             bar.get_x() + bar.get_width() / 2,
@@ -120,12 +123,14 @@ def plot_waterfall(
         )
 
     ax.yaxis.set_major_formatter(
-        plt.matplotlib.ticker.FuncFormatter(lambda x, _: f"{int(x):,}")
+        FuncFormatter(lambda x, _: f"{int(x):,}")
     )
+
     ax.set_ylabel("Rows")
     ax.set_ylim(0, total_raw * 1.15)
     ax.set_title(f"CIC-IoT-2023 ingest waterfall — {n_folders} folders")
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
     plt.tight_layout()
+
     return fig
