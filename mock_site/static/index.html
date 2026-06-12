@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{{SITE_NAME}}</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body data-threat="calm">
+  <!-- Reaction layer: a calm guardian badge that escalates on detector events.
+       This is the explainability presentation layer; the site itself has no
+       detection logic. -->
+  <div id="guardian" class="guardian guardian--calm">
+    <span class="guardian__dot"></span>
+    <div class="guardian__text">
+      <strong id="guardian-state">Protected</strong>
+      <small id="guardian-detail">All traffic nominal</small>
+    </div>
+  </div>
+
+  <div class="ambient" aria-hidden="true"></div>
+
+  <header class="nav">
+    <div class="brand">{{SITE_NAME}}</div>
+    <nav><a>Product</a><a>Pricing</a><a>Docs</a><a class="cta">Sign in</a></nav>
+  </header>
+
+  <main class="hero">
+    <h1>Ship faster on infrastructure that stays up.</h1>
+    <p>{{SITE_NAME}} is a demo storefront standing in for a real customer site —
+       the protected party in a live intrusion-detection demonstration.</p>
+    <div class="row">
+      <button class="cta">Start free</button>
+      <button class="ghost" id="ping">Make a request</button>
+      <span id="ping-result" class="muted"></span>
+    </div>
+  </main>
+
+  <section class="cards">
+    <div class="card"><h3>Fast</h3><p>Sub-100ms flow inference at the edge sensor.</p></div>
+    <div class="card"><h3>Watched</h3><p>A passive sensor classifies every flow in real time.</p></div>
+    <div class="card"><h3>Resilient</h3><p>Malicious sources are banned at the firewall, out-of-band.</p></div>
+  </section>
+
+  <footer class="foot muted">Demo site · protected by the RT-IDS live sensor</footer>
+
+  <script>
+    window.DETECTOR_URL = "{{DETECTOR_URL}}";
+  </script>
+  <script src="/static/app.js"></script>
+</body>
+</html>

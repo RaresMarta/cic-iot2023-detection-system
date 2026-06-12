@@ -1,0 +1,77 @@
+# Live IDS demo — Topology B (single user-defined bridge; detector host-networked).
+#
+#   docker compose -f deploy/docker-compose.yml up website detector dashboard
+#   # then drive attacks on-demand (each replica = a distinct source IP):
+#   docker compose -f deploy/docker-compose.yml --profile attack up --scale attacker=30 attacker
+#
+# The detector runs in the HOST network namespace and sniffs the bridge interface
+# `ids-br0` (pinned below), so it sees attacker<->website traffic with real per-source
+# IPs and can write nftables on the host. Build context is the project root (..).
+
+networks:
+  idsnet:
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.name: ids-br0   # deterministic iface for the sniffer
+    ipam:
+      config:
+        - subnet: 172.30.0.0/16
+          gateway: 172.30.0.1
+
+services:
+  website:                       # the protected party (mock customer site)
+    build:
+      context: ..
+      dockerfile: deploy/mock_site.Dockerfile
+    environment:
+      SITE_NAME: "Aperture Cloud"
+      DETECTOR_URL: "${DETECTOR_URL:-http://localhost:7870}"   # browser-reachable detector
+    networks:
+      idsnet:
+        ipv4_address: 172.30.0.10
+    ports:
+      - "8080:80"                # browse the protected site at http://<host>:8080
+
+  detector:                      # the product: passive sensor + out-of-band enforcement
+    build:
+      context: ..
+      dockerfile: deploy/detector.Dockerfile
+    network_mode: host           # sees ids-br0 in the host namespace; binds host :7870
+    cap_add:
+      - NET_ADMIN                # write nftables
+      - NET_RAW                  # raw AF_PACKET capture
+    environment:
+      IDS_SOURCE: live
+      IDS_IFACE: ids-br0
+      IDS_PROTECTED_IPS: "172.30.0.10"
+      IDS_NEVER_BAN: "172.30.0.10,172.30.0.1"
+      IDS_ENFORCER: nft
+    depends_on:
+      - website                # ensures idsnet (and the ids-br0 bridge) exists first
+    restart: unless-stopped
+
+  dashboard:                     # the SOC console (React app — built per the frontend plan)
+    profiles: ["full"]           # opt-in; needs ids-frontend/Dockerfile from the frontend workstream
+    build:
+      context: ../../ids-frontend
+    environment:
+      VITE_DETECTOR_URL: "${DETECTOR_URL:-http://localhost:7870}"
+    networks: [idsnet]
+    ports:
+      - "3000:80"
+
+  attacker:                      # on-demand swarm; scale for distributed (Mirai) attacks
+    profiles: ["attack"]
+    build:
+      context: ..
+      dockerfile: deploy/attacker.Dockerfile
+    cap_add:
+      - NET_RAW                  # hping3 raw packets / --rand-source spoofing
+      - NET_ADMIN
+    environment:
+      ATTACK: "${ATTACK:-synflood}"     # synflood|udpflood|recon|spoofed_flood
+      TARGET: "172.30.0.10"
+      DURATION: "${DURATION:-0}"
+    networks: [idsnet]           # NOT host net -> each replica gets its own 172.30.0.x
+    depends_on:
+      - website
