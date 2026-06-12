@@ -76,8 +76,8 @@ def run_hpo(
             IDSDataset(X_va_t, torch.tensor(y_va_enc, dtype=torch.long)),
             batch_size=bs, num_workers=0,
         )
-        model = IDSModel(N_FEATURES, n_cls, hidden_sizes=hidden,
-                         dropout=dropout, activation=act).to(device)
+        model = IDSModel(N_FEATURES, n_cls, hidden_sizes=hidden, dropout=dropout, activation=act).to(device)
+
         _, history = train_model(
             model, train_loader, val_loader, weights_t,
             tune_epochs, 5, lr, device,

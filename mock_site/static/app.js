@@ -7,11 +7,7 @@
   const detailEl = document.getElementById('guardian-detail');
   const url = (window.DETECTOR_URL || 'http://localhost:7870') + '/api/stream';
 
-  const FAMILY_LABEL = {
-    DDoS: 'Distributed flood', DoS: 'Denial-of-service flood',
-    Mirai: 'Botnet flood', Recon: 'Reconnaissance scan',
-  };
-
+  // Minimal status only — no attack-family detail (that lives in the IDS dashboard).
   let recoverTimer = null;
 
   function setThreat(level, state, detail) {
@@ -23,27 +19,25 @@
 
   function scheduleCalm(delay) {
     clearTimeout(recoverTimer);
-    recoverTimer = setTimeout(() => setThreat('calm', 'Protected', 'All traffic nominal'), delay);
+    recoverTimer = setTimeout(() => setThreat('calm', 'Protected', 'traffic nominal'), delay);
   }
 
   function onEvent(evt) {
     switch (evt.type) {
       case 'alert':
-        setThreat('elevated', 'Threat detected',
-          (FAMILY_LABEL[evt.family] || evt.family) + ' — analysing');
+        setThreat('elevated', 'Threat detected', 'analysing traffic');
         break;
       case 'flow':
         if (evt.gate === 'block' && body.dataset.threat !== 'blocked') {
-          setThreat('engaged', 'Under attack',
-            (FAMILY_LABEL[evt.family] || evt.family) + ' from ' + evt.src);
+          setThreat('engaged', 'Under attack', 'from ' + evt.src);
         }
         break;
       case 'ban':
-        setThreat('blocked', 'Threat blocked', evt.attacker_ip + ' banned for ' + evt.ttl_s + 's');
+        setThreat('blocked', 'Source blocked', evt.attacker_ip);
         scheduleCalm(8000);
         break;
       case 'recovered':
-        setThreat('calm', 'Protected', 'Recovered — traffic nominal');
+        setThreat('calm', 'Protected', 'recovered');
         break;
     }
   }

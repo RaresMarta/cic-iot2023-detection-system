@@ -22,7 +22,6 @@ STATIC = Path(__file__).resolve().parent / 'static'
 # Where the browser can reach the detector's SSE feed. The page runs in the
 # visitor's browser, so this must be a host-reachable URL, not a container name.
 DETECTOR_URL = os.environ.get('DETECTOR_URL', 'http://localhost:7870')
-SITE_NAME = os.environ.get('SITE_NAME', 'Aperture Cloud')
 
 app = FastAPI(title='Mock customer site')
 
@@ -30,7 +29,7 @@ app = FastAPI(title='Mock customer site')
 @app.get('/', response_class=HTMLResponse)
 def index():
     html = (STATIC / 'index.html').read_text()
-    return html.replace('{{DETECTOR_URL}}', DETECTOR_URL).replace('{{SITE_NAME}}', SITE_NAME)
+    return html.replace('{{DETECTOR_URL}}', DETECTOR_URL)
 
 
 @app.get('/api/ping')

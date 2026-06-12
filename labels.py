@@ -42,7 +42,7 @@ def remap_labels(y_34_str: np.ndarray, mode: str) -> np.ndarray:
     """Remap 34-class labels to 8-class or 2-class granularity."""
     if mode == '34':
         return y_34_str
-    
+
     mapping = DICT_8CLASSES if mode == '8' else DICT_2CLASSES
-    
+
     return np.array([mapping[x] for x in y_34_str])

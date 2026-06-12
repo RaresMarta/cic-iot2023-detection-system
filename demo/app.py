@@ -184,7 +184,7 @@ async def classify_endpoint(
         tmp_path = Path(tmp)
 
         if input_type == 'pcap':
-            pcap_path = tmp_path / file.filename
+            pcap_path = tmp_path / (file.filename or 'upload.pcap')
             pcap_path.write_bytes(contents)
             try:
                 csv_path = run_cicflowmeter(pcap_path, tmp_path)
@@ -203,6 +203,7 @@ async def classify_endpoint(
     result['split']       = split
     result['file_name']   = file.filename
     result['success']     = True
+
     return result
 
 
@@ -222,9 +223,11 @@ def inject_endpoint(req: InjectRequest):
     """Queue attack flows of a green family to appear in the live stream."""
     if req.family not in SAMPLER.families:
         return {'error': f'Unknown family {req.family!r}. Available: {SAMPLER.families}'}
+
     n = max(1, min(req.count, 200))
     for _ in range(n):
         INJECT_QUEUE.append(req.family)
+
     return {'queued': n, 'family': req.family, 'pending': len(INJECT_QUEUE)}
 
 
@@ -248,6 +251,7 @@ def feature_importance_endpoint():
         items = [{'feature': features[i] if i < len(features) else str(i),
                   'importance': float(arr[i])} for i in range(len(arr))]
     items.sort(key=lambda d: -d['importance'])
+
     return {'features': items}
 
 
@@ -266,6 +270,7 @@ def _gradio_classify_csv(file, predictor_key):
     for lbl in pred['labels']:
         counts[str(lbl)] = counts.get(str(lbl), 0) + 1
     summary = ' | '.join(f'{k}: {v}' for k, v in sorted(counts.items(), key=lambda kv: -kv[1]))
+
     return f'{len(pred["labels"])} flows — {summary}', rows
 
 
@@ -277,6 +282,7 @@ def _gradio_classify_pcap(file, predictor_key):
             csv_path = run_cicflowmeter(Path(file.name), Path(tmp))
         except CICFlowMeterError as e:
             return f'CICFlowMeter error: {e}', []
+
         return _gradio_classify_csv(type('F', (), {'name': str(csv_path)})(), predictor_key)
 
 

@@ -1,22 +1,22 @@
-/* Warm, restrained palette (Claude-adjacent). Red is reserved for genuine threat;
-   the calm baseline is the brand. No flashing — state changes fade. */
+/* Neutral placeholder server. Warm, restrained palette; red reserved for genuine
+   threat; calm baseline. The only "live" element is the guard badge — rich attack
+   visuals live in the IDS dashboard, not on the protected server. */
 :root {
   --ink: #141413;
   --cream: #faf9f5;
   --surface: #f0eee7;
   --border: #e0ddd2;
   --muted: #8a877c;
-  --clay: #d97757;
   --ok: #788c5d;        /* secure */
   --warn: #d4a05a;      /* threat analysing */
   --danger: #b4544a;    /* reserved: active attack */
-  --info: #6a9bcc;
   --ease: cubic-bezier(0.25, 1, 0.5, 1);
 }
 
 * { box-sizing: border-box; }
 body {
-  margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif;
+  margin: 0; min-height: 100vh; display: grid; place-items: center;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
   color: var(--ink); background: var(--cream); line-height: 1.5;
   transition: background 600ms var(--ease);
 }
@@ -24,63 +24,43 @@ body {
 /* Ambient vignette — intensifies with threat level, stays subtle */
 .ambient {
   position: fixed; inset: 0; pointer-events: none; z-index: 1;
-  box-shadow: inset 0 0 0 0 transparent;
-  transition: box-shadow 700ms var(--ease);
+  box-shadow: inset 0 0 0 0 transparent; transition: box-shadow 700ms var(--ease);
 }
 body[data-threat="elevated"] .ambient { box-shadow: inset 0 0 140px -40px var(--warn); }
 body[data-threat="engaged"]  .ambient { box-shadow: inset 0 0 180px -30px var(--danger); }
 body[data-threat="blocked"]  .ambient { box-shadow: inset 0 0 140px -40px var(--ok); }
 
-/* Guardian badge */
+/* Guard badge */
 .guardian {
   position: fixed; top: 18px; right: 18px; z-index: 5;
   display: flex; align-items: center; gap: 10px;
   background: #fff; border: 1px solid var(--border); border-radius: 12px;
   padding: 10px 14px; box-shadow: 0 6px 24px -12px rgba(20,20,19,.25);
-  transition: border-color 400ms var(--ease), box-shadow 400ms var(--ease);
+  transition: border-color 400ms var(--ease);
 }
-.guardian__dot {
-  width: 10px; height: 10px; border-radius: 50%; background: var(--ok);
-  box-shadow: 0 0 0 0 var(--ok); transition: background 400ms var(--ease);
-}
+.guardian__dot { width: 10px; height: 10px; border-radius: 50%; background: var(--ok); transition: background 400ms var(--ease); }
 .guardian__text { display: flex; flex-direction: column; }
 .guardian__text strong { font-size: 13px; }
 .guardian__text small { font-size: 11px; color: var(--muted); }
-
-.guardian--calm    .guardian__dot { background: var(--ok); }
 .guardian--elevated .guardian__dot { background: var(--warn); animation: pulse 1.4s infinite; }
 .guardian--engaged  .guardian__dot { background: var(--danger); animation: pulse .8s infinite; }
-.guardian--blocked  .guardian__dot { background: var(--ok); }
 .guardian--elevated { border-color: var(--warn); }
 .guardian--engaged  { border-color: var(--danger); }
 .guardian--blocked  { border-color: var(--ok); }
-
 @keyframes pulse {
-  0%   { box-shadow: 0 0 0 0 currentColor; }
-  70%  { box-shadow: 0 0 0 8px transparent; }
-  100% { box-shadow: 0 0 0 0 transparent; }
+  0% { box-shadow: 0 0 0 0 currentColor; } 70% { box-shadow: 0 0 0 8px transparent; } 100% { box-shadow: 0 0 0 0 transparent; }
 }
 
-/* Layout */
-.nav {
-  display: flex; justify-content: space-between; align-items: center;
-  padding: 20px 40px; position: relative; z-index: 2;
+/* Plain server placeholder */
+.server { position: relative; z-index: 2; max-width: 520px; padding: 32px; text-align: center; }
+.server__badge {
+  display: inline-block; font-size: 11px; letter-spacing: 2px; color: var(--muted);
+  border: 1px solid var(--border); border-radius: 6px; padding: 3px 8px; margin-bottom: 18px;
 }
-.brand { font-weight: 700; letter-spacing: -.2px; }
-.nav nav { display: flex; gap: 22px; align-items: center; }
-.nav a { color: var(--ink); text-decoration: none; font-size: 14px; opacity: .8; cursor: pointer; }
-.cta {
-  background: var(--clay); color: #fff; border: none; border-radius: 9px;
-  padding: 9px 16px; font-size: 14px; cursor: pointer; opacity: 1;
-}
-.hero { max-width: 720px; margin: 80px auto 40px; padding: 0 24px; text-align: center; position: relative; z-index: 2; }
-.hero h1 { font-size: 44px; line-height: 1.1; letter-spacing: -1px; margin: 0 0 16px; }
-.hero p { font-size: 18px; color: #4a4843; }
-.row { display: flex; gap: 12px; align-items: center; justify-content: center; margin-top: 28px; }
-.ghost { background: #fff; border: 1px solid var(--border); border-radius: 9px; padding: 9px 16px; cursor: pointer; }
+.server h1 { font-size: 40px; letter-spacing: -1px; margin: 0 0 14px; }
+.server p { color: #56544e; }
+.row { display: flex; gap: 12px; align-items: center; justify-content: center; margin: 24px 0 8px; }
+.ghost { font: inherit; background: #fff; border: 1px solid var(--border); border-radius: 9px; padding: 9px 16px; cursor: pointer; }
 .muted { color: var(--muted); font-size: 13px; }
-.cards { max-width: 920px; margin: 40px auto; padding: 0 24px; display: grid; grid-template-columns: repeat(3,1fr); gap: 16px; position: relative; z-index: 2; }
-.card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 22px; }
-.card h3 { margin: 0 0 6px; font-size: 16px; }
-.card p { margin: 0; color: #56544e; font-size: 14px; }
-.foot { text-align: center; padding: 40px; }
+.meta { margin-top: 20px; font-size: 12px; }
+.ok-text { color: var(--ok); }
