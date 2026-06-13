@@ -93,6 +93,24 @@ class LiveCapture(PacketSource):
                     raise SystemExit(f'cannot bind to interface {self.iface!r}: {e}')
                 print(f'[capture] waiting for interface {self.iface!r}…', flush=True)
                 time.sleep(1.0)
+
+        # Binding alone only delivers frames addressed to this interface. On a Linux
+        # bridge the attacker<->website flood is *forwarded* between veth ports, so a
+        # non-promiscuous socket on the bridge master never sees it (just like a raw
+        # bind without `tcpdump -p`). Enable promiscuous mode (needs CAP_NET_ADMIN)
+        # so we capture every frame the bridge processes, not only host-addressed ones.
+        try:
+            import struct
+            SOL_PACKET = getattr(socket, 'SOL_PACKET', 263)   # Linux value; not always exposed
+            PACKET_ADD_MEMBERSHIP, PACKET_MR_PROMISC = 1, 1
+            ifindex = socket.if_nametoindex(self.iface)
+            mreq = struct.pack('iHH8s', ifindex, PACKET_MR_PROMISC, 0, b'')
+            sock.setsockopt(SOL_PACKET, PACKET_ADD_MEMBERSHIP, mreq)
+            print(f'[capture] promiscuous mode enabled on {self.iface!r}', flush=True)
+        except (OSError, AttributeError) as e:
+            print(f'[capture] WARNING: could not enable promiscuous mode on '
+                  f'{self.iface!r}: {e} — bridged traffic may be invisible', flush=True)
+
         sock.settimeout(self.recv_timeout)
         self._sock = sock
 

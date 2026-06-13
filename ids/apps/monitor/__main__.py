@@ -12,7 +12,7 @@ import os
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(prog='live_detector')
+    ap = argparse.ArgumentParser(prog='ids.apps.monitor')
     ap.add_argument('--port', type=int, default=int(os.environ.get('IDS_PORT', '7870')))
     sub = ap.add_subparsers(dest='cmd', required=True)
 
@@ -43,7 +43,7 @@ def main() -> None:
         os.environ['IDS_IFACE'] = args.iface
 
     import uvicorn
-    uvicorn.run('live_detector.service:app', host='0.0.0.0', port=args.port, log_level='info')
+    uvicorn.run('ids.apps.monitor.service:app', host='0.0.0.0', port=args.port, log_level='info')
 
 
 if __name__ == '__main__':
