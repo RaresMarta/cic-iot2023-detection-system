@@ -6,7 +6,7 @@ Exposes the contract the dashboard + mock site consume:
   GET /api/stats      counters
   GET /api/health     liveness + mode
 
-Run: python -m live_detector replay <pcap>   |   python -m live_detector live --iface ids-br0
+Run: python -m ids.apps.monitor replay <pcap>   |   python -m ids.apps.monitor live --iface ids-br0
 """
 from __future__ import annotations
 
@@ -21,10 +21,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(PROJECT_ROOT))
 
-from demo.inference import IDSPredictor  # noqa: E402
+from ids.runtime.predictor import IDSPredictor  # noqa: E402
 
 from . import config, enforcement, producers  # noqa: E402
 from .detector import Detector  # noqa: E402

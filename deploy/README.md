@@ -97,9 +97,9 @@ The detector pipeline (capture → window → classify → decide → publish) i
 exercisable offline, which is how it was developed and validated:
 
 ```sh
-.venv/bin/python -m live_detector simulate          # real sampled CIC-IoT-2023 flows
+.venv/bin/python -m ids.apps.monitor simulate          # real sampled CIC-IoT-2023 flows
 #   curl -XPOST localhost:7870/api/inject -d '{"family":"DDoS","count":20}'
-.venv/bin/python -m live_detector replay path/to.pcap --realtime
-.venv/bin/python -m live_detector.synth ./pcaps     # generate synthetic test pcaps
+.venv/bin/python -m ids.apps.monitor replay path/to.pcap --realtime
+.venv/bin/python -m ids.apps.monitor.synth ./pcaps     # generate synthetic test pcaps
 ```
 In offline/dev the enforcer auto-falls back to a logging no-op (no nftables needed).

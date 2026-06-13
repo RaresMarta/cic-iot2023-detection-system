@@ -26,7 +26,10 @@ class FlowExplainer:
         per = max(1, background_size // len(sampler.families))
         frames = [sampler.sample_flows(f, n=per, seed=seed) for f in sampler.families]
         bg_scaled = predictor.preprocess(pl.concat(frames)).astype(np.float32)
-        bg_tensor = torch.from_numpy(bg_scaled).to(predictor.device).cpu().numpy()
+        # GradientExplainer wraps a torch model, so the background must be a torch
+        # tensor on the model's device — passing numpy makes the model's first
+        # linear layer reject the input ("must be Tensor, not numpy.ndarray").
+        bg_tensor = torch.from_numpy(bg_scaled).to(predictor.device)
 
         predictor.model.eval()
         self.explainer = shap.GradientExplainer(predictor.model, bg_tensor)
@@ -73,15 +76,11 @@ class FlowExplainer:
 
 
 if __name__ == '__main__':
-    import sys
-    from pathlib import Path
+    from ids.core.config import MODELS_DIR
+    from ids.data.sampler import FlowSampler
+    from ids.runtime.predictor import IDSPredictor
 
-    PROJECT_ROOT = Path(__file__).resolve().parent.parent
-    sys.path.insert(0, str(PROJECT_ROOT))
-    from demo.inference import IDSPredictor
-    from demo.sampler import FlowSampler
-
-    predictor = IDSPredictor(PROJECT_ROOT / 'models', split='temporal', mode='8')
+    predictor = IDSPredictor(MODELS_DIR, split='temporal', mode='8')
     sampler = FlowSampler()
     explainer = FlowExplainer(predictor, sampler)
 

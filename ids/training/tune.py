@@ -15,9 +15,9 @@ from optuna.pruners import MedianPruner
 from optuna.samplers import TPESampler
 import wandb
 
-from config import N_FEATURES
-from models import IDSDataset, IDSModel, train_model
-from preprocessing import fit_preprocess
+from ids.core.config import N_FEATURES
+from ids.core.models import IDSDataset, IDSModel, train_model
+from ids.data.preprocessing import fit_preprocess
 
 
 def run_hpo(

@@ -1,6 +1,6 @@
 """Training orchestration: the single place the load -> split -> train ->
 evaluate -> calibrate -> persist sequence exists. Callable from the notebook
-(``from training import run_training``) and headless (``python -m training``).
+(``from ids.training import run_training``) and headless (``python -m training``).
 """
 from __future__ import annotations
 
@@ -10,18 +10,18 @@ import numpy as np
 import torch
 from sklearn.preprocessing import LabelEncoder
 
-from config import SEED, MODELS_DIR, X_COLUMNS_SELECTED
-from labels import remap_labels
-from preprocessing import SPLIT_FUNCS, fit_preprocess
-from models import evaluate, device
-from training import artifacts
-from training.calibration import run_calibration
-from training.data import load_dataset
-from training.evaluation import metrics5, report_and_confusion, global_permutation_importance
-from training.trainers import (
+from ids.core.config import SEED, MODELS_DIR, X_COLUMNS_SELECTED
+from ids.core.labels import remap_labels
+from ids.data.preprocessing import SPLIT_FUNCS, fit_preprocess
+from ids.core.models import evaluate, device
+from ids.training import artifacts
+from ids.training.calibration import run_calibration
+from ids.training.data import load_dataset
+from ids.training.evaluation import metrics5, report_and_confusion, global_permutation_importance
+from ids.training.trainers import (
     balanced_class_weights, train_mlp, mlp_logits, train_rf, train_xgb, _loader,
 )
-from training.tracking import Tracker
+from ids.training.tracking import Tracker
 
 __all__ = ['run_training']
 

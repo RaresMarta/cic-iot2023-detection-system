@@ -24,8 +24,7 @@ import joblib
 import numpy as np
 import polars as pl
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-MODELS_DIR = PROJECT_ROOT / 'models'
+from ids.core.config import MODELS_DIR
 
 _TCP_FLAGS = {
     'fin': dpkt.tcp.TH_FIN, 'syn': dpkt.tcp.TH_SYN, 'rst': dpkt.tcp.TH_RST,
@@ -135,7 +134,7 @@ def extract_features(pcap_path: str | Path, window: int = 10, include_partial: b
 if __name__ == '__main__':
     import sys
     if len(sys.argv) < 2:
-        print('usage: python -m demo.dpkt_extractor <file.pcap> [window]')
+        print('usage: python -m ids.runtime.extractor <file.pcap> [window]')
         raise SystemExit(1)
     win = int(sys.argv[2]) if len(sys.argv) > 2 else 10
     df = extract_features(sys.argv[1], window=win)

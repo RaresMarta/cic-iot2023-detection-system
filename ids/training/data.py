@@ -4,7 +4,7 @@ from __future__ import annotations
 import numpy as np
 import polars as pl
 
-from config import (
+from ids.core.config import (
     PARQUET_PATH, Y_COLUMN,
     X_COLUMNS_SELECTED, LOG_COLUMNS_SELECTED,
 )

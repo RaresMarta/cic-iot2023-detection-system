@@ -14,7 +14,7 @@ import joblib
 import numpy as np
 import torch
 
-from config import MODELS_DIR
+from ids.core.config import MODELS_DIR
 
 RESULTS_CACHE = Path('_results_full.joblib')
 RESULTS_SUMMARY = Path('_results_summary.json')
@@ -89,7 +89,7 @@ def save_perm_importance(perm: dict, models_dir=MODELS_DIR):
 
 def load_mlp(split: str, mode: str, n_features: int, models_dir=MODELS_DIR):
     """Reload a trained MLP + its encoder from disk (e.g. for benchmarking)."""
-    from models import IDSModel, device
+    from ids.core.models import IDSModel, device
     le = joblib.load(encoder_path(split, mode, models_dir))
     model = IDSModel(n_features, len(le.classes_)).to(device)
     model.load_state_dict(torch.load(weights_path(split, mode, models_dir),

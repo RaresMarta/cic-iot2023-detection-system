@@ -1,7 +1,7 @@
 """RT-IDS backend — FastAPI REST endpoint for the React frontend.
 
 Run:
-    python -m demo.app
+    python -m ids.apps.analyzer.app
 
 REST API:   http://localhost:7860/api/classify
 """
@@ -11,15 +11,14 @@ import tempfile
 import time
 from pathlib import Path
 
+import numpy as np
 import polars as pl
 import uvicorn
 from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
-from demo.inference import IDSPredictor
-
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-MODELS_DIR   = PROJECT_ROOT / 'models'
+from ids.core.config import MODELS_DIR
+from ids.runtime.predictor import IDSPredictor
 
 
 def discover_predictors() -> dict[str, IDSPredictor]:
@@ -45,6 +44,25 @@ if not PREDICTORS:
     )
 
 
+# ── SHAP explainability (offline path only) ──────────────────────────────────
+# The upload classify path is latency-tolerant, so it can afford a real SHAP
+# explanation. The explainer is built once at startup over the 8-class predictor
+# (the model the upload UI uses); it stays None if that model or `shap` is absent,
+# in which case classification still works — it just omits `top_features`.
+# NOTE: the live :7870 path keeps its cheap |scaled-value| saliency proxy on
+# purpose (SHAP is too slow per captured window) — do not wire SHAP there.
+EXPLAIN_KEY = 'temporal / 8-class'
+EXPLAINER = None
+if EXPLAIN_KEY in PREDICTORS:
+    try:
+        from ids.runtime.explain import FlowExplainer
+        from ids.data.sampler import FlowSampler
+        EXPLAINER = FlowExplainer(PREDICTORS[EXPLAIN_KEY], FlowSampler())
+    except Exception as e:                       # missing shap / sampler data / build error
+        print(f'[app] SHAP explainer unavailable, classify will omit top_features: {e}', flush=True)
+        EXPLAINER = None
+
+
 def _aggregate(pred: dict) -> dict:
     """Aggregate per-flow predictions into a single result."""
     probs    = pred['probabilities']          # (n_flows, n_classes)
@@ -67,9 +85,28 @@ def _aggregate(pred: dict) -> dict:
     }
 
 
-def classify_csv(csv_path: Path, predictor_key: str):
-    df  = pl.read_csv(str(csv_path))
-    return PREDICTORS[predictor_key].predict(df)
+def _explain_dominant(predictor, predictor_key: str, df: pl.DataFrame, pred: dict,
+                      top_label: str, top_k: int = 8) -> list[dict] | None:
+    """SHAP explanation for the flow that best represents the dominant verdict.
+
+    Returns the frontend's [{feature, contribution}] shape (signed SHAP value as
+    `contribution`), or None — never raises, so a SHAP failure can't fail a
+    classification. Only runs when the request used the explainer's own predictor,
+    so the attributions match the model that produced the prediction.
+    """
+    if EXPLAINER is None or predictor_key != EXPLAIN_KEY:
+        return None
+    try:
+        class_names = pred['class_names']
+        top_idx = class_names.index(top_label)
+        probs = np.asarray(pred['probabilities'])                 # (n_flows, n_classes)
+        rep = int(probs[:, top_idx].argmax())                     # most representative flow
+        x_scaled = predictor.preprocess(df)[rep]
+        reasons = EXPLAINER.explain(x_scaled, df.row(rep, named=True), top_idx, top_k=top_k)
+        return [{'feature': r['feature'], 'contribution': r['shap']} for r in reasons]
+    except Exception as e:                                         # never fail the classification
+        print(f'[app] SHAP explanation skipped: {e}', flush=True)
+        return None
 
 
 # ── FastAPI app ────────────────────────────────────────────────────────────
@@ -99,15 +136,22 @@ async def classify_endpoint(
         available = list(PREDICTORS.keys())
         return {'error': f'Model {predictor_key!r} not found. Available: {available}'}
 
+    predictor = PREDICTORS[predictor_key]
     t0 = time.time()
     contents = await file.read()
 
     with tempfile.TemporaryDirectory() as tmp:
         csv_path = Path(tmp) / (file.filename or 'upload.csv')
         csv_path.write_bytes(contents)
-        pred = classify_csv(csv_path, predictor_key)
+        df = pl.read_csv(str(csv_path))
 
+    pred = predictor.predict(df)
     result = _aggregate(pred)
+
+    top_features = _explain_dominant(predictor, predictor_key, df, pred, result['top_label'])
+    if top_features is not None:
+        result['top_features'] = top_features
+
     result['processing_time_ms'] = round((time.time() - t0) * 1000)
     result['model_type']  = model_type
     result['mode']        = mode

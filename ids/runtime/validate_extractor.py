@@ -1,10 +1,10 @@
 """Validate the DPKT extractor end-to-end.
 
 Two modes:
-  * `python -m demo.validate_extractor <file.pcap> [window]` — extract real pcap, classify,
+  * `python -m ids.runtime.validate_extractor <file.pcap> [window]` — extract real pcap, classify,
     print the per-window verdicts. Use this for DISTRIBUTIONAL validation once real
     CIC-IoT-2023 pcaps are available (compare predicted labels to ground truth).
-  * `python -m demo.validate_extractor` (no args) — MECHANICAL self-test: synthesize a SYN
+  * `python -m ids.runtime.validate_extractor` (no args) — MECHANICAL self-test: synthesize a SYN
     flood and a benign HTTPS exchange, run them through extractor + model, and confirm the
     pipeline produces model-compatible features and sane verdicts.
 
@@ -20,11 +20,9 @@ from pathlib import Path
 
 import dpkt
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(PROJECT_ROOT))
-
-from demo.dpkt_extractor import extract_features  # noqa: E402
-from demo.inference import IDSPredictor  # noqa: E402
+from ids.core.config import MODELS_DIR
+from ids.runtime.extractor import extract_features
+from ids.runtime.predictor import IDSPredictor
 
 
 def _frame(src, dst, sport, dport, proto='tcp', flags=0, ttl=64, payload=b'') -> bytes:
@@ -81,7 +79,7 @@ def _classify(predictor, df, scenario):
 
 
 def main():
-    predictor = IDSPredictor(PROJECT_ROOT / 'models', split='temporal', mode='8')
+    predictor = IDSPredictor(MODELS_DIR, split='temporal', mode='8')
 
     if len(sys.argv) > 1:
         path = sys.argv[1]

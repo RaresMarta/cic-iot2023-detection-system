@@ -4,10 +4,12 @@ from pathlib import Path
 import numpy as np
 import torch
 
-# Paths
-DATASET_DIRECTORY = Path('data/CSV')
-PARQUET_PATH = Path('data/cic_iot_2023.parquet')
-MODELS_DIR = Path('models')
+# Paths — anchored to the repo root (this file is ids/core/config.py), so they
+# resolve the same regardless of the current working directory.
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+DATASET_DIRECTORY = PROJECT_ROOT / 'data' / 'CSV'
+PARQUET_PATH = PROJECT_ROOT / 'data' / 'cic_iot_2023.parquet'
+MODELS_DIR = PROJECT_ROOT / 'models'
 MODELS_DIR.mkdir(exist_ok=True)
 
 # Data

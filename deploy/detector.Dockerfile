@@ -15,12 +15,13 @@ RUN pip install --no-cache-dir \
     && pip install --no-cache-dir \
         dpkt fastapi "uvicorn[standard]" polars joblib numpy scikit-learn
 
-# Project code + trained artefacts.
-COPY config.py labels.py models.py ./
-COPY demo/ ./demo/
-COPY live_detector/ ./live_detector/
+# Project code + trained artefacts. The monitor needs the whole `ids` package
+# (it reuses ids.runtime / ids.data / ids.core).
+COPY pyproject.toml ./
+COPY ids/ ./ids/
 COPY models/ ./models/
 
+ENV PYTHONPATH=/app
 EXPOSE 7870
 # IDS_SOURCE=live (LiveCapture on IDS_IFACE) is set in compose for the VPS.
-CMD ["python", "-m", "live_detector", "live", "--iface", "ids-br0"]
+CMD ["python", "-m", "ids.apps.monitor", "live", "--iface", "ids-br0"]

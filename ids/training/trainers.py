@@ -12,8 +12,8 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.utils.class_weight import compute_class_weight
 from torch.utils.data import DataLoader
 
-from config import BATCH_SIZE, N_EPOCHS, PATIENCE, LR, SEED
-from models import IDSDataset, IDSModel, train_model, device
+from ids.core.config import BATCH_SIZE, N_EPOCHS, PATIENCE, LR, SEED
+from ids.core.models import IDSDataset, IDSModel, train_model, device
 
 
 def balanced_class_weights(y_tr: np.ndarray, n_classes: int) -> np.ndarray:

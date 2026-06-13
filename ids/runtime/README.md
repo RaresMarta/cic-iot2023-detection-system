@@ -39,7 +39,7 @@ Less complete than the Java version but no JVM required.
 ## Run
 
 ```powershell
-python -m demo.app
+python -m ids.apps.analyzer.app
 ```
 
 Opens at <http://localhost:7860>.

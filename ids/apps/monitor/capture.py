@@ -16,10 +16,8 @@ from abc import ABC, abstractmethod
 from collections.abc import Iterator
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(PROJECT_ROOT))
 
-from demo.dpkt_extractor import _iter_packets  # noqa: E402
+from ids.runtime.extractor import _iter_packets  # noqa: E402
 
 # Sentinel yielded by LiveCapture on a recv timeout so the consumer can flush idle
 # windows even when no packet arrived. ts is None for this marker.

@@ -7,10 +7,8 @@ capture, nftables) without code changes.
 from __future__ import annotations
 
 import os
-from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-MODELS_DIR = PROJECT_ROOT / 'models'
+from ids.core.config import MODELS_DIR
 
 
 def _env_str(name: str, default: str) -> str:

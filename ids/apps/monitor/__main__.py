@@ -1,7 +1,7 @@
 """CLI entrypoint.
 
-  python -m live_detector replay path/to.pcap [--realtime] [--loop]
-  python -m live_detector live --iface ids-br0
+  python -m ids.apps.monitor replay path/to.pcap [--realtime] [--loop]
+  python -m ids.apps.monitor live --iface ids-br0
 
 Sets environment config, then launches the FastAPI service with uvicorn.
 """

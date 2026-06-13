@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 import seaborn as sns
 
-from training.calibration import reliability_curve, softmax
+from ids.training.calibration import reliability_curve, softmax
 
 MODEL_LABELS = {'mlp': 'MLP', 'rf': 'Random Forest', 'xgb': 'XGBoost'}
 MODEL_COLORS = {'mlp': '#5f8dd3', 'rf': '#3aa17e', 'xgb': '#e07a5f'}

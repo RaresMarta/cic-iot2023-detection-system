@@ -5,11 +5,11 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY config.py models.py preprocessing.py labels.py ./
-COPY demo/ demo/
+COPY pyproject.toml .
+COPY ids/ ids/
 COPY models/ models/
 
 ENV PYTHONPATH=/app
 EXPOSE 7860
 
-CMD ["python", "-m", "demo.app"]
+CMD ["python", "-m", "ids.apps.analyzer.app"]

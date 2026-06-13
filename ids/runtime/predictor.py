@@ -1,7 +1,6 @@
 """Inference layer: load scaler + encoder + MLP, classify CSVs the same way the notebook does."""
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 import joblib
@@ -9,11 +8,8 @@ import numpy as np
 import polars as pl
 import torch
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(PROJECT_ROOT))
-
-from config import X_COLUMNS as CONFIG_X_COLUMNS, FLAG_COLUMNS as CONFIG_FLAG_COLUMNS
-from models import IDSModel
+from ids.core.config import X_COLUMNS as CONFIG_X_COLUMNS, FLAG_COLUMNS as CONFIG_FLAG_COLUMNS
+from ids.core.models import IDSModel
 
 
 class IDSPredictor:

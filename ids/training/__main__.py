@@ -7,8 +7,8 @@ from __future__ import annotations
 
 import argparse
 
-from training import run_training
-from training.plots import MODEL_LABELS
+from ids.training import run_training
+from ids.training.plots import MODEL_LABELS
 
 
 def main() -> None:

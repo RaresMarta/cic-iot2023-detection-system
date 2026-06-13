@@ -24,8 +24,6 @@ from collections import deque
 from collections.abc import Callable
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(PROJECT_ROOT))
 
 from . import config
 from .capture import IDLE_TICK, PacketSource
@@ -121,7 +119,7 @@ class SampledWindowProducer(WindowProducer):
 def from_config():
     """Build the window producer + (optional) inject queue selected by config."""
     if config.SOURCE == 'simulate':
-        from demo.sampler import FlowSampler
+        from ids.data.sampler import FlowSampler
         q: deque = deque()
         return SampledWindowProducer(FlowSampler(), inject_queue=q), q
     from . import capture

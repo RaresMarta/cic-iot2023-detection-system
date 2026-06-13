@@ -10,8 +10,8 @@ import joblib
 import numpy as np
 from scipy.optimize import minimize_scalar
 
-from config import MODELS_DIR
-from training import artifacts
+from ids.core.config import MODELS_DIR
+from ids.training import artifacts
 
 
 def softmax(z: np.ndarray) -> np.ndarray:

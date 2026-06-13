@@ -21,12 +21,14 @@ Experiment tracking              → Weights & Biases
 | Path | Purpose |
 | --- | --- |
 | `ids_pipeline.ipynb` | Full ML pipeline — ingestion, EDA, feature selection, splits, Optuna tuning, MLP + tree baselines, wandb logging, latency benchmark |
-| `config.py` | Feature columns (39 raw → 25 after selection), training hyperparameters, split/mode config |
-| `models.py` | Flexible IDSModel (variable depth, activation, optimizer), AMP training, Optuna pruning support |
-| `preprocessing.py` | Three split strategies (temporal / per-CSV / random), median imputation, RobustScaler |
-| `labels.py` | 34→8→2 class label mappings |
-| `demo/` | FastAPI + Gradio inference server. `POST /api/classify` serves the React frontend |
+| `ids/core/` | Shared foundation: feature config (39 raw → 25 selected), `IDSModel`, 34→8→2 label maps |
+| `ids/data/` | Offline data prep: ingest (CSV→parquet), preprocessing (splits/scaling/imputation), flow sampler |
+| `ids/runtime/` | Shared inference library: packet→feature extractor, `IDSPredictor`, SHAP explainer |
+| `ids/training/` | Training orchestration, Optuna tuning, latency/throughput benchmark |
+| `ids/apps/analyzer/` | FastAPI server (`:7860`) — `POST /api/classify` for on-demand file analysis (serves the React frontend) |
+| `ids/apps/monitor/` | Live beside-path NIDS (`:7870`) — capture → window → classify → ban |
 | `models/` | Saved scaler, label encoders, MLP state dicts per (split, granularity) |
+| `tests/` | pytest contract suite (feature / extractor parity / artifact / API / calibration) |
 | `docs/report/` | Thesis report (LaTeX) |
 
 ## Feature Selection
@@ -71,10 +73,10 @@ Key config knobs in `config.py`:
 ## Running the demo locally
 
 ```
-python -m demo.app
+python -m ids.apps.analyzer.app
 ```
 
-Binds at `http://localhost:7860`. Gradio UI at `/`, REST API at `/api/classify`.
+Binds at `http://localhost:7860`. REST API at `/api/classify`.
 
 The React frontend (`G:/uni/ids-frontend`) points at this via `VITE_API_URL=http://localhost:7860` in `.env`.
 
@@ -87,10 +89,10 @@ hf upload baresman/ids-backend models/scaler_temporal.joblib models/scaler_tempo
 # repeat for each model file
 ```
 
-**Code changes:**
+**Code changes:** the Space needs the whole `ids/` package, e.g.
 ```bash
-hf upload baresman/ids-backend demo/app.py demo/app.py --repo-type space
-hf upload baresman/ids-backend models.py models.py --repo-type space
+hf upload baresman/ids-backend ids/ ids/ --repo-type space
+hf upload baresman/ids-backend pyproject.toml pyproject.toml --repo-type space
 ```
 
 HF Space redeploys automatically on every upload.
