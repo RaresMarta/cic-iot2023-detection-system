@@ -10,10 +10,11 @@ import torch
 from torch.utils.data import DataLoader
 from sklearn.preprocessing import LabelEncoder
 from sklearn.utils.class_weight import compute_class_weight
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import f1_score
 import optuna
 from optuna.pruners import MedianPruner
 from optuna.samplers import TPESampler
-import wandb
 
 from ids.core.config import N_FEATURES
 from ids.core.models import IDSDataset, IDSModel, train_model
@@ -103,9 +104,121 @@ def run_hpo(
     for k, v in best.items():
         print(f"  {k}: {v}")
 
+    import wandb  # lazy: keep the package importable without wandb installed
     run = wandb.init(project="cic-iot2023-ids", name="optuna-best-trial",
                      job_type="hparam-search")
     run.log({"best_val_loss": study.best_value, **best})
     wandb.finish()
 
     return best
+
+
+def run_hpo_rf(
+    X_all: np.ndarray,
+    y_all_34: np.ndarray,
+    split_indices: dict,
+    remap_labels: Callable,
+    seed: int = 42,
+    n_trials: int = 30,
+    tune_split: str = "temporal",
+    tune_mode: str = "8",
+    subsample: int = 100_000,
+    wandb_enabled: bool = False,
+) -> dict:
+    """Optuna TPE search for the Random Forest; maximises validation macro-F1.
+
+    Mirrors ``run_hpo`` (MLP) but for the tree baseline. RF has no iterative
+    ``val_loss`` to minimise, so the objective is validation macro-F1 (the
+    imbalance-sensitive metric the thesis reports). Unlike the MLP search this
+    is mode-general: the label encoder is fit on ``remap_labels(y_all_34, mode)``
+    the same way ``run_training`` does, so ``tune_mode='8'`` works directly.
+    ``class_weight='balanced'`` is held fixed to match the project's
+    class-weighted-only imbalance decision. The search fits on a subsample of
+    train for speed; the final model (in ``trainers.train_rf``) trains on full
+    train with the returned params baked in.
+    """
+    optuna.logging.set_verbosity(optuna.logging.WARNING)
+
+    tr_full, va, te = split_indices[tune_split]
+    rng = np.random.default_rng(seed)
+    tr  = rng.choice(tr_full, size=min(subsample, len(tr_full)), replace=False)
+
+    X_tr, X_va, _, _, _ = fit_preprocess(X_all, tr, va, te)
+
+    le = LabelEncoder().fit(remap_labels(y_all_34, tune_mode))
+    y_tr_enc = le.transform(remap_labels(y_all_34[tr], tune_mode))
+    y_va_enc = le.transform(remap_labels(y_all_34[va], tune_mode))
+
+    def _objective(trial: optuna.Trial) -> float:
+        rf = RandomForestClassifier(
+            n_estimators=trial.suggest_int("n_estimators", 100, 600, step=50),
+            max_depth=trial.suggest_int("max_depth", 10, 40),
+            min_samples_split=trial.suggest_int("min_samples_split", 2, 20),
+            min_samples_leaf=trial.suggest_int("min_samples_leaf", 1, 20),
+            max_features=trial.suggest_categorical("max_features", ["sqrt", "log2", 0.5, 0.7]),
+            class_weight="balanced", n_jobs=-1, random_state=seed,
+        )
+        rf.fit(X_tr, y_tr_enc)
+        # study runs sequentially (n_jobs=1); each RF already saturates all cores
+        return f1_score(y_va_enc, rf.predict(X_va), average="macro")
+
+    study = optuna.create_study(
+        direction="maximize",
+        sampler=TPESampler(seed=seed),
+        study_name="ids-rf-hparam-search",
+    )
+    study.optimize(_objective, n_trials=n_trials, n_jobs=1, show_progress_bar=True)
+
+    best = study.best_params
+    print(f"Best val macro-F1 : {study.best_value:.4f}")
+    for k, v in best.items():
+        print(f"  {k}: {v}")
+
+    if wandb_enabled:
+        import wandb
+        run = wandb.init(project="cic-iot2023-ids", name="optuna-rf-best-trial",
+                         job_type="hparam-search")
+        run.log({"best_val_macro_f1": study.best_value, **best})
+        wandb.finish()
+
+    return best
+
+
+def main() -> None:
+    """Headless HPO entry point: ``python -m ids.training.tune --model rf``.
+
+    Loads the dataset, builds the requested split, runs the search, and prints
+    the best params to bake into ``ids/training/trainers.py``. MLP tuning stays
+    in the notebook for now (``run_hpo`` is 2-class-specific).
+    """
+    import argparse
+
+    p = argparse.ArgumentParser(
+        prog="python -m ids.training.tune",
+        description="Optuna search; prints best params to bake into trainers.py.")
+    p.add_argument("--model", choices=["rf"], default="rf",
+                   help="model to tune (MLP search stays in the notebook)")
+    p.add_argument("--split", default="temporal",
+                   choices=["temporal", "per_csv", "random"])
+    p.add_argument("--mode", default="8", choices=["2", "8", "34"])
+    p.add_argument("--trials", type=int, default=30)
+    p.add_argument("--subsample", type=int, default=100_000)
+    p.add_argument("--wandb", action="store_true")
+    args = p.parse_args()
+
+    from ids.core.config import SEED
+    from ids.core.labels import remap_labels
+    from ids.data.preprocessing import SPLIT_FUNCS
+    from ids.training.data import load_dataset
+
+    X_all, y_all_34, source_csv = load_dataset()
+    tr, va, te = SPLIT_FUNCS[args.split](y_all_34, source_csv, SEED)
+    best = run_hpo_rf(X_all, y_all_34, {args.split: (tr, va, te)}, remap_labels,
+                      seed=SEED, n_trials=args.trials, tune_split=args.split,
+                      tune_mode=args.mode, subsample=args.subsample,
+                      wandb_enabled=args.wandb)
+    print("\nBEST PARAMS:", best)
+
+
+if __name__ == "__main__":
+    main()
