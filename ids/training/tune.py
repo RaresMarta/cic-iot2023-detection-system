@@ -13,11 +13,10 @@ from sklearn.utils.class_weight import compute_class_weight
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import f1_score
 import optuna
-from optuna.pruners import MedianPruner
 from optuna.samplers import TPESampler
 
 from ids.core.config import N_FEATURES
-from ids.core.models import IDSDataset, IDSModel, train_model
+from ids.core.models import IDSDataset, IDSModel, train_model, evaluate
 from ids.data.preprocessing import fit_preprocess
 
 
@@ -26,16 +25,20 @@ def run_hpo(
     y_all_34: np.ndarray,
     split_indices: dict,
     remap_labels: Callable,
-    label_dict_2class: dict,
     device: torch.device,
     seed: int = 42,
     n_trials: int = 15,
     tune_epochs: int = 10,
     tune_split: str = "temporal",
-    tune_mode: str = "2",
+    tune_mode: str = "8",
     subsample: int = 100_000,
+    wandb_enabled: bool = False,
 ) -> dict:
-    """Run Optuna TPE search and return the best hyperparameter dict."""
+    """Optuna TPE search for the MLP; maximises validation macro-F1.
+
+    Mode-general (encoder fit on the remapped labels, like run_training), so
+    ``tune_mode='8'`` works. Objective is the trained model's val macro-F1 (the
+    imbalance-sensitive metric the thesis reports), not val loss."""
     optuna.logging.set_verbosity(optuna.logging.WARNING)
 
     tr_full, va, te = split_indices[tune_split]
@@ -47,7 +50,7 @@ def run_hpo(
     X_va_t = torch.tensor(X_va, dtype=torch.float32)
     del X_tr, X_va
 
-    le = LabelEncoder().fit(sorted(set(label_dict_2class.values())))
+    le = LabelEncoder().fit(remap_labels(y_all_34, tune_mode))
     y_tr_enc = le.transform(remap_labels(y_all_34[tr], tune_mode))
     y_va_enc = le.transform(remap_labels(y_all_34[va], tune_mode))
     n_cls    = len(le.classes_)
@@ -79,20 +82,19 @@ def run_hpo(
         )
         model = IDSModel(N_FEATURES, n_cls, hidden_sizes=hidden, dropout=dropout, activation=act).to(device)
 
-        _, history = train_model(
+        model, _ = train_model(
             model, train_loader, val_loader, weights_t,
             tune_epochs, 5, lr, device,
-            optimizer_name=opt_name, trial=trial,
+            optimizer_name=opt_name, trial=None,  # F1 objective: no val_loss pruning
         )
-        return min(history["val_loss"])
+        return evaluate(model, val_loader, list(le.classes_), device)["macro_f1"]
 
     db_path = os.path.join(tempfile.gettempdir(), "optuna_ids.db")
     study = optuna.create_study(
-        direction="minimize",
+        direction="maximize",
         sampler=TPESampler(seed=seed),
-        pruner=MedianPruner(n_startup_trials=3, n_warmup_steps=3),
         storage=f"sqlite:///{db_path}",
-        study_name="ids-hparam-search",
+        study_name="ids-mlp-hpo-f1",
         load_if_exists=True,
     )
     study.optimize(_objective, n_trials=n_trials, n_jobs=2, show_progress_bar=True)
@@ -100,15 +102,16 @@ def run_hpo(
     del X_tr_t, X_va_t
 
     best = study.best_params
-    print(f"Best val loss : {study.best_value:.4f}")
+    print(f"Best val macro-F1 : {study.best_value:.4f}")
     for k, v in best.items():
         print(f"  {k}: {v}")
 
-    import wandb  # lazy: keep the package importable without wandb installed
-    run = wandb.init(project="cic-iot2023-ids", name="optuna-best-trial",
-                     job_type="hparam-search")
-    run.log({"best_val_loss": study.best_value, **best})
-    wandb.finish()
+    if wandb_enabled:
+        import wandb
+        run = wandb.init(project="cic-iot2023-ids", name="optuna-mlp-best-trial",
+                         job_type="hparam-search")
+        run.log({"best_val_macro_f1": study.best_value, **best})
+        wandb.finish()
 
     return best
 
@@ -196,8 +199,8 @@ def main() -> None:
     p = argparse.ArgumentParser(
         prog="python -m ids.training.tune",
         description="Optuna search; prints best params to bake into trainers.py.")
-    p.add_argument("--model", choices=["rf"], default="rf",
-                   help="model to tune (MLP search stays in the notebook)")
+    p.add_argument("--model", choices=["rf", "mlp"], default="rf",
+                   help="model to tune")
     p.add_argument("--split", default="temporal",
                    choices=["temporal", "per_csv", "random"])
     p.add_argument("--mode", default="8", choices=["2", "8", "34"])
@@ -213,10 +216,19 @@ def main() -> None:
 
     X_all, y_all_34, source_csv = load_dataset()
     tr, va, te = SPLIT_FUNCS[args.split](y_all_34, source_csv, SEED)
-    best = run_hpo_rf(X_all, y_all_34, {args.split: (tr, va, te)}, remap_labels,
-                      seed=SEED, n_trials=args.trials, tune_split=args.split,
-                      tune_mode=args.mode, subsample=args.subsample,
-                      wandb_enabled=args.wandb)
+    split_indices = {args.split: (tr, va, te)}
+
+    if args.model == "rf":
+        best = run_hpo_rf(X_all, y_all_34, split_indices, remap_labels,
+                          seed=SEED, n_trials=args.trials, tune_split=args.split,
+                          tune_mode=args.mode, subsample=args.subsample,
+                          wandb_enabled=args.wandb)
+    else:
+        from ids.core.models import device
+        best = run_hpo(X_all, y_all_34, split_indices, remap_labels, device,
+                       seed=SEED, n_trials=args.trials, tune_split=args.split,
+                       tune_mode=args.mode, subsample=args.subsample,
+                       wandb_enabled=args.wandb)
     print("\nBEST PARAMS:", best)
 
 
