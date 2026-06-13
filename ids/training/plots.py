@@ -12,8 +12,8 @@ import seaborn as sns
 
 from ids.training.calibration import reliability_curve, softmax
 
-MODEL_LABELS = {'mlp': 'MLP', 'rf': 'Random Forest', 'xgb': 'XGBoost'}
-MODEL_COLORS = {'mlp': '#5f8dd3', 'rf': '#3aa17e', 'xgb': '#e07a5f'}
+MODEL_LABELS = {'mlp': 'MLP', 'rf': 'Random Forest'}
+MODEL_COLORS = {'mlp': '#5f8dd3', 'rf': '#3aa17e'}
 PARTITIONS = ('train', 'val', 'test')
 
 
@@ -60,7 +60,7 @@ def plot_training_curves(histories: dict, split: str) -> Figure:
 
 
 def plot_splits_bar(R: dict, mode: str, key: str, title: str, ylabel: str,
-                    models=('mlp', 'rf', 'xgb')) -> Figure:
+                    models=('mlp', 'rf')) -> Figure:
     """Grouped bars of one metric across train/val/test for all models.
 
     ``R`` is one split's results dict: ``R[(f'mode{mode}', model, partition)][key]``.
@@ -71,7 +71,7 @@ def plot_splits_bar(R: dict, mode: str, key: str, title: str, ylabel: str,
 
     for i, m in enumerate(models):
         vals = [R[(f'mode{mode}', m, s)][key] for s in PARTITIONS]
-        plt.bar(x + (i - 1) * w, vals, w, label=MODEL_LABELS[m],
+        plt.bar(x + (i - (len(models) - 1) / 2) * w, vals, w, label=MODEL_LABELS[m],
                 color=MODEL_COLORS[m], edgecolor='black', linewidth=0.4)
 
     plt.xticks(x, [s.capitalize() for s in PARTITIONS])
@@ -94,7 +94,7 @@ def plot_permutation_importance(perm: dict, top_n: int = 20) -> Figure:
 
     plt.barh(list(feats[order])[::-1], list(imp[order])[::-1],
              color='#5f8dd3', edgecolor='black', linewidth=0.4)
-    plt.xlabel('Permutation importance (mean macro-F1 drop, RF+XGB avg)')
+    plt.xlabel('Permutation importance (mean macro-F1 drop, Random Forest)')
     plt.title(f'Top {top_n} features by permutation importance')
     plt.tight_layout()
 

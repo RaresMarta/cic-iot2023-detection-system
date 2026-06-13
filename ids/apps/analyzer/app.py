@@ -32,9 +32,9 @@ def _parse(stem: str) -> tuple[str, str] | None:
 def discover_predictors() -> dict:
     """Discover every servable variant on disk, keyed 'model_type/split/mode'.
 
-    The MLP is stored as ids_dnn_*.pth (model_type 'mlp'); the tree baselines as
-    ids_rf_*.joblib / ids_xgb_*.joblib. The web app selects one by the model_type
-    the frontend sends, so all three cards are backed by real models.
+    The MLP is stored as ids_dnn_*.pth (model_type 'mlp'); the Random Forest as
+    ids_rf_*.joblib. The web app selects one by the model_type the frontend sends,
+    so each model card is backed by a real model.
     """
     found: dict = {}
     for ckpt in MODELS_DIR.glob('ids_dnn_*_*class.pth'):
@@ -46,7 +46,7 @@ def discover_predictors() -> dict:
             found[f'mlp/{split}/{mode}'] = IDSPredictor(MODELS_DIR, split=split, mode=mode)
         except FileNotFoundError:
             continue
-    for kind in ('rf', 'xgb'):
+    for kind in ('rf',):
         for ckpt in MODELS_DIR.glob(f'ids_{kind}_*_*class.joblib'):
             sm = _parse(ckpt.stem)
             if sm is None:

@@ -19,7 +19,7 @@ from ids.training.calibration import run_calibration
 from ids.training.data import load_dataset
 from ids.training.evaluation import metrics5, report_and_confusion, global_permutation_importance
 from ids.training.trainers import (
-    balanced_class_weights, train_mlp, mlp_logits, train_rf, train_xgb, _loader,
+    balanced_class_weights, train_mlp, mlp_logits, train_rf, _loader,
 )
 from ids.training.tracking import Tracker
 
@@ -28,7 +28,7 @@ __all__ = ['run_training']
 
 def run_training(splits=('temporal',), modes=('2', '8'),
                  wandb_enabled: bool = False, parquet_path=None) -> dict:
-    """Train MLP + RF + XGBoost for every (split, mode), persist everything.
+    """Train MLP + Random Forest for every (split, mode), persist everything.
 
     Per (split, mode): serving artifacts (scaler, encoder, weights, feature
     columns), run artifacts (history + test predictions), MLP logits, metrics on
@@ -115,28 +115,14 @@ def run_training(splits=('temporal',), modes=('2', '8'),
                               {'n_estimators': 200, 'max_depth': 20},
                               RESULTS[(f'mode{mode}', 'rf', 'test')])
 
-            # ---- XGBoost ----
-            print('  [XGB] training...')
-            xgb_clf = train_xgb(X_train, y_tr, K)
-            models_mem[(split, mode, 'xgb')] = xgb_clf
-            artifacts.save_tree_model(xgb_clf, split, mode, 'xgb')
-            for part, Xs, ys in (('test', X_test, y_te), ('val', X_val, y_va),
-                                 ('train', X_train, y_tr)):
-                RESULTS[(f'mode{mode}', 'xgb', part)] = metrics5(ys, xgb_clf.predict(Xs))
-            rep, _ = report_and_confusion(y_te, xgb_clf.predict(X_test), class_names)
-            RESULTS[f'xgb_report_{mode}'] = rep
-            tracker.log_model(split, mode, 'xgb',
-                              {'n_estimators': 300, 'max_depth': 8},
-                              RESULTS[(f'mode{mode}', 'xgb', 'test')])
-
             if mode == '8':
-                trees_for_importance = (rf, xgb_clf, X_test, y_te)
+                trees_for_importance = (rf, X_test, y_te)
 
         # ---- Permutation importance (8-class) ----
         if trees_for_importance is not None:
             print('  permutation importance (8-class)...')
-            rf8, xgb8, Xte8, yte8 = trees_for_importance
-            perm = global_permutation_importance(rf8, xgb8, Xte8, yte8,
+            rf8, Xte8, yte8 = trees_for_importance
+            perm = global_permutation_importance(rf8, Xte8, yte8,
                                                  X_COLUMNS_SELECTED, SEED)
             RESULTS['perm_importance_8'] = perm
             artifacts.save_perm_importance(perm)

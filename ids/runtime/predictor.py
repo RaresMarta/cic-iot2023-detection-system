@@ -3,7 +3,7 @@
 Two servable backends share the same preprocessing and the same output contract, so the
 web app can swap between them by key without any downstream change:
   IDSPredictor  — the PyTorch MLP, with temperature-scaled (calibrated) confidence.
-  TreePredictor — the Random Forest / XGBoost baselines (sklearn ``predict_proba``).
+  TreePredictor — the Random Forest baseline (sklearn ``predict_proba``).
 """
 from __future__ import annotations
 
@@ -103,9 +103,9 @@ class IDSPredictor(_BasePredictor):
 
 
 class TreePredictor(_BasePredictor):
-    """A serialised sklearn RandomForest / XGBoost baseline (kind 'rf' or 'xgb'), served
-    with the same preprocessing and output contract as the MLP. No temperature scaling —
-    tree ensembles produce their own probability estimates."""
+    """A serialised sklearn Random Forest baseline (kind 'rf'), served with the same
+    preprocessing and output contract as the MLP. No temperature scaling — the forest
+    produces its own probability estimates. (Generic over `kind` for future baselines.)"""
 
     def __init__(self, models_dir: Path, kind: str, split: str = 'temporal', mode: str = '2'):
         super().__init__(models_dir, split, mode)

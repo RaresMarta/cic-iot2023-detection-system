@@ -36,7 +36,7 @@ def weights_path(split: str, mode: str, models_dir=MODELS_DIR) -> Path:
 
 
 def tree_model_path(split: str, mode: str, kind: str, models_dir=MODELS_DIR) -> Path:
-    """Serialised tree baseline (kind 'rf' or 'xgb'), servable alongside the MLP."""
+    """Serialised tree baseline (kind 'rf'), servable alongside the MLP."""
     return models_dir / f'ids_{kind}_{split}_{mode}class.joblib'
 
 
@@ -138,7 +138,7 @@ def load_results() -> dict:
 
 
 def save_paper_numbers(results_all: dict, calibration: dict, primary_split: str,
-                       modes, models=('mlp', 'rf', 'xgb')):
+                       modes, models=('mlp', 'rf')):
     """The numbers cited in the thesis text, as JSON, from the primary split."""
     R = results_all[primary_split]
     payload = {

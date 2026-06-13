@@ -5,9 +5,8 @@ pyarrow
 numpy
 scikit-learn
 joblib
-xgboost
+shap
 uvicorn[standard]
 fastapi
 python-multipart
-cicflowmeter
 pandas

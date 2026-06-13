@@ -14,7 +14,7 @@ from ids.training.plots import MODEL_LABELS
 def main() -> None:
     p = argparse.ArgumentParser(
         prog='python -m training',
-        description='Retrain MLP + RF + XGBoost and regenerate all artifacts, '
+        description='Retrain MLP + RF and regenerate all artifacts, '
                     'the metrics cache, calibration, and the paper numbers.')
     p.add_argument('--splits', nargs='+', default=['temporal'],
                    choices=['temporal', 'per_csv', 'random'],
@@ -34,7 +34,7 @@ def main() -> None:
         for mode in args.modes:
             print(f'\n--- {split} {mode}-class TEST ---')
             print(f'{"model":<14}{"acc":>8}{"wF1":>8}{"macroF1":>9}{"valW-F1":>9}{"valMacro":>9}')
-            for m in ('mlp', 'rf', 'xgb'):
+            for m in ('mlp', 'rf'):
                 t = R[(f'mode{mode}', m, 'test')]
                 v = R[(f'mode{mode}', m, 'val')]
                 print(f'{MODEL_LABELS[m]:<14}{t["accuracy"]:>8.4f}{t["weighted_f1"]:>8.4f}'

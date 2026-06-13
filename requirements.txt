@@ -6,7 +6,6 @@ numpy
 joblib
 matplotlib
 seaborn
-xgboost
 wandb
 optuna
 shap

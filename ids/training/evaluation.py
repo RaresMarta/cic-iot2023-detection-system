@@ -28,12 +28,12 @@ def report_and_confusion(y_true, y_pred, class_names: list) -> tuple[str, np.nda
     return rep, cm
 
 
-def global_permutation_importance(rf, xgb_clf, X_test, y_test, feat_cols,
+def global_permutation_importance(rf, X_test, y_test, feat_cols,
                                   seed: int, sample: int = 10_000,
                                   n_repeats: int = 3) -> dict:
-    """RF+XGB averaged permutation importance (macro-F1 drop) on a test subsample.
+    """Random Forest permutation importance (macro-F1 drop) on a test subsample.
 
-    Falls back to the built-in (Gini/gain) importances if permutation fails,
+    Falls back to the built-in (Gini) importances if permutation fails,
     flagging the fallback in the returned dict.
     """
     try:
@@ -41,14 +41,13 @@ def global_permutation_importance(rf, xgb_clf, X_test, y_test, feat_cols,
 
         sub = rng.choice(len(X_test), size=min(sample, len(X_test)), replace=False)
         pi_rf = permutation_importance(rf, X_test[sub], y_test[sub], n_repeats=n_repeats, random_state=seed, scoring='f1_macro', n_jobs=1)
-        pi_xgb = permutation_importance(xgb_clf, X_test[sub], y_test[sub], n_repeats=n_repeats, random_state=seed, scoring='f1_macro', n_jobs=1)
-        imp = (pi_rf.importances_mean + pi_xgb.importances_mean) / 2.0  # type: ignore[union-attr]
+        imp = pi_rf.importances_mean  # type: ignore[union-attr]
 
         return {'features': list(feat_cols), 'importance': imp.tolist()}
     except Exception as e:
         print(f'WARNING: permutation importance failed ({e!r}); '
               f'falling back to built-in importances')
-        imp = (rf.feature_importances_ + xgb_clf.feature_importances_) / 2.0
+        imp = rf.feature_importances_
         return {'features': list(feat_cols), 'importance': imp.tolist(),
                 'fallback': 'builtin'}
 

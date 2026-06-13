@@ -1,4 +1,4 @@
-"""Model training: MLP (PyTorch) and the RF/XGBoost tree baselines.
+"""Model training: MLP (PyTorch) and the Random Forest tree baseline.
 
 Hyperparameters are fixed to the values selected by the Optuna search and used
 for every reported result; see the thesis methodology chapter.
@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import numpy as np
 import torch
-import xgboost as xgb
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.utils.class_weight import compute_class_weight
 from torch.utils.data import DataLoader
@@ -65,20 +64,3 @@ def train_rf(X_train, y_tr, seed: int = SEED) -> RandomForestClassifier:
     rf.fit(X_train, y_tr)
 
     return rf
-
-
-def train_xgb(X_train, y_tr, n_classes: int, seed: int = SEED) -> xgb.XGBClassifier:
-    present = np.unique(y_tr)
-    w = compute_class_weight('balanced', classes=present, y=y_tr)
-    sample_weight = np.ones(len(y_tr), dtype=np.float32)
-
-    for c, wt in zip(present, w):
-        sample_weight[y_tr == c] = wt
-
-    clf = xgb.XGBClassifier(n_estimators=300, max_depth=8, learning_rate=0.1,
-                            tree_method='hist', n_jobs=-1, random_state=seed,
-                            objective='binary:logistic' if n_classes == 2 else 'multi:softprob',
-                            eval_metric='logloss' if n_classes == 2 else 'mlogloss')
-    clf.fit(X_train, y_tr, sample_weight=sample_weight)
-
-    return clf
