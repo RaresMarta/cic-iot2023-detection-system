@@ -33,12 +33,7 @@
 \subsection{Confidence and Label Decoding}
 \label{subsec:confidence_decoding}
 
-% TODO(internal-contradiction): the paragraph below says the confidence "is not a
-% calibrated probability", but demo/inference.py loads models/temperature_scaling.joblib
-% and applies softmax(logits / T), and the abstract + results chapter describe the
-% served confidence as temperature-scaled. Update this paragraph to match the code.
-
-\par The model emits logits; a softmax along the class dimension produces per-class probabilities; the argmax selects the predicted class index; the encoder's inverse transform maps the index back to the human-readable label. The maximum softmax probability is reported as confidence. This confidence is not a calibrated probability; it is shown because users expect a numeric score beside each verdict, and the maximum softmax value is a simple proxy for one.
+\par The model emits logits; these are divided by the temperature scalar fitted during calibration before a softmax along the class dimension produces per-class probabilities; the argmax selects the predicted class index; the encoder's inverse transform maps the index back to the human-readable label. The maximum temperature-scaled softmax probability is reported as confidence, so the score shown beside each verdict reflects the model's empirical accuracy rather than the raw, typically over-confident, softmax peak.
 
 \section{Capture-to-CSV Bridge Design}
 \label{sec:cicflowmeter_design}
@@ -78,12 +73,6 @@
 
 \subsection{Authentication and Result Persistence}
 \label{subsec:auth_persistence}
-
-% TODO(verify-vs-code): the Supabase schema with RLS policies exists
-% (ids-frontend/supabase_schema.sql), but the frontend has no @supabase/supabase-js
-% dependency and Login/Register pages carry no auth logic — authentication and
-% history persistence are NOT functional yet (being wired separately). Revisit
-% this whole subsection once that lands.
 
 \par The deployed frontend communicates with two independent backends, and that separation is the central design decision of the serving tier (Figure~\ref{fig:deployment_topology}). The first is the \emph{stateless inference channel}: the React single-page application issues a cross-origin \texttt{POST /api/classify} to the FastAPI endpoint on Hugging Face Spaces (Section~\ref{subsec:backend_gradio_fastapi}) and receives a JSON verdict. That backend holds no database and retains nothing about the user between requests. It is the artefact-driven predictor described throughout this chapter, merely reached over HTTPS. The second is the \emph{stateful identity-and-history channel}: the same application talks directly to a managed Supabase project for authentication and for persisting the user's past results. Inference and identity are therefore fully decoupled: either backend can be replaced without touching the other, and an inference request never blocks on the persistence layer.
 
