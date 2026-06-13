@@ -28,5 +28,8 @@ _results_summary.json
 _paper_numbers.json
 models_backup_39feat/
 
+# Upload bundles (data/code shipped to Colab/Kaggle for training)
+*.zip
+
 # macOS
 **/.DS_Store

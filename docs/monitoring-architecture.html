@@ -1,0 +1,739 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RT-IDS — Live Monitoring Architecture</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg-deep: #0a0c10;
+    --bg-panel: #11141a;
+    --bg-card: #181c24;
+    --bg-hover: #1e2330;
+    --border: #2a2f3c;
+    --border-active: #3d8bfd;
+    --text-primary: #e2e6ef;
+    --text-secondary: #7c849b;
+    --text-muted: #4a5068;
+    --accent-blue: #3d8bfd;
+    --accent-teal: #2dd4a8;
+    --accent-amber: #f0a830;
+    --accent-red: #f0503c;
+    --accent-purple: #a78bfa;
+    --sidebar-w: 280px;
+    --topbar-h: 0px;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    font-family: 'IBM Plex Sans', sans-serif;
+    background: var(--bg-deep);
+    color: var(--text-primary);
+    min-height: 100vh;
+    display: flex;
+    overflow-x: hidden;
+  }
+
+  /* ── Sidebar ── */
+  .sidebar {
+    position: fixed;
+    top: 0; left: 0;
+    width: var(--sidebar-w);
+    height: 100vh;
+    background: var(--bg-panel);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    z-index: 100;
+    transition: transform 0.3s ease;
+  }
+
+  .sidebar-header {
+    padding: 28px 24px 20px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .sidebar-header h1 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent-teal);
+    margin-bottom: 4px;
+  }
+
+  .sidebar-header .subtitle {
+    font-size: 11px;
+    color: var(--text-muted);
+    font-family: 'JetBrains Mono', monospace;
+    letter-spacing: 0.04em;
+  }
+
+  .sidebar-nav {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px 0;
+  }
+
+  .nav-section-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    padding: 16px 24px 6px;
+  }
+
+  .nav-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 24px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    border-left: 2px solid transparent;
+    text-decoration: none;
+    color: var(--text-secondary);
+    font-size: 13px;
+    font-weight: 400;
+  }
+
+  .nav-item:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+  }
+
+  .nav-item.active {
+    background: rgba(61, 139, 253, 0.06);
+    color: var(--accent-blue);
+    border-left-color: var(--accent-blue);
+    font-weight: 500;
+  }
+
+  .nav-icon {
+    width: 18px;
+    height: 18px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    flex-shrink: 0;
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 700;
+  }
+
+  .nav-icon.pipe { background: rgba(45,212,168,0.15); color: var(--accent-teal); }
+  .nav-icon.seq { background: rgba(61,139,253,0.15); color: var(--accent-blue); }
+  .nav-icon.dec { background: rgba(240,80,60,0.15); color: var(--accent-red); }
+  .nav-icon.dep { background: rgba(167,139,250,0.15); color: var(--accent-purple); }
+  .nav-icon.evt { background: rgba(240,168,48,0.15); color: var(--accent-amber); }
+
+  /* ── Main Content ── */
+  .main {
+    margin-left: var(--sidebar-w);
+    flex: 1;
+    min-height: 100vh;
+  }
+
+  .content {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 48px 40px 120px;
+  }
+
+  .page-head {
+    margin-bottom: 56px;
+    padding-bottom: 28px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .page-head h1 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 26px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 10px;
+  }
+
+  .page-head p {
+    font-size: 14px;
+    line-height: 1.7;
+    color: var(--text-secondary);
+    max-width: 720px;
+  }
+
+  .page-head p code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    background: rgba(61,139,253,0.1);
+    color: var(--accent-blue);
+    padding: 2px 6px;
+    border-radius: 3px;
+  }
+
+  .diagram-section {
+    margin-bottom: 80px;
+    scroll-margin-top: 24px;
+  }
+
+  .section-number {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted);
+    letter-spacing: 0.08em;
+    margin-bottom: 8px;
+  }
+
+  .section-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 22px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 16px;
+    line-height: 1.3;
+  }
+
+  .section-desc {
+    font-size: 14px;
+    line-height: 1.7;
+    color: var(--text-secondary);
+    margin-bottom: 28px;
+    max-width: 680px;
+  }
+
+  .section-desc strong {
+    color: var(--accent-teal);
+    font-weight: 500;
+  }
+
+  .section-desc code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    background: rgba(61,139,253,0.1);
+    color: var(--accent-blue);
+    padding: 2px 6px;
+    border-radius: 3px;
+  }
+
+  .diagram-container {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 32px 24px;
+    overflow-x: auto;
+  }
+
+  .diagram-container .mermaid {
+    display: flex;
+    justify-content: center;
+  }
+
+  .diagram-container svg {
+    max-width: 100%;
+    height: auto;
+  }
+
+  .callout {
+    margin-top: 20px;
+    padding: 14px 18px;
+    border-radius: 6px;
+    font-size: 13px;
+    line-height: 1.6;
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+  }
+
+  .callout.warning {
+    background: rgba(240,80,60,0.08);
+    border: 1px solid rgba(240,80,60,0.2);
+    color: var(--accent-red);
+  }
+
+  .callout.info {
+    background: rgba(61,139,253,0.08);
+    border: 1px solid rgba(61,139,253,0.2);
+    color: var(--accent-blue);
+  }
+
+  .callout.success {
+    background: rgba(45,212,168,0.08);
+    border: 1px solid rgba(45,212,168,0.2);
+    color: var(--accent-teal);
+  }
+
+  .callout code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    background: rgba(255,255,255,0.05);
+    padding: 1px 5px;
+    border-radius: 3px;
+  }
+
+  .callout-icon {
+    font-size: 14px;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+
+  /* ── Mobile ── */
+  .mobile-toggle {
+    display: none;
+    position: fixed;
+    top: 16px; left: 16px;
+    z-index: 200;
+    width: 40px; height: 40px;
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text-primary);
+    font-size: 18px;
+    cursor: pointer;
+    align-items: center;
+    justify-content: center;
+  }
+
+  @media (max-width: 860px) {
+    .mobile-toggle { display: flex; }
+    .sidebar { transform: translateX(-100%); }
+    .sidebar.open { transform: translateX(0); }
+    .main { margin-left: 0; }
+    .content { padding: 72px 20px 80px; }
+  }
+
+  /* Mermaid theme overrides */
+  .mermaid .node rect,
+  .mermaid .node polygon,
+  .mermaid .node circle {
+    rx: 6;
+    ry: 6;
+  }
+</style>
+</head>
+<body>
+
+<button class="mobile-toggle" onclick="document.querySelector('.sidebar').classList.toggle('open')">☰</button>
+
+<aside class="sidebar">
+  <div class="sidebar-header">
+    <h1>RT-IDS Monitor</h1>
+    <div class="subtitle">Live NIDS Architecture</div>
+  </div>
+  <nav class="sidebar-nav">
+    <div class="nav-section-label">Pipeline</div>
+    <a class="nav-item active" href="#pipeline" data-target="pipeline">
+      <span class="nav-icon pipe">01</span> Detection Pipeline
+    </a>
+    <a class="nav-item" href="#sequence" data-target="sequence">
+      <span class="nav-icon seq">02</span> Per-Window Sequence
+    </a>
+    <div class="nav-section-label">Decision Logic</div>
+    <a class="nav-item" href="#decision" data-target="decision">
+      <span class="nav-icon dec">03</span> Ban Policy &amp; Enforcement
+    </a>
+    <a class="nav-item" href="#events" data-target="events">
+      <span class="nav-icon evt">04</span> SSE Event Lifecycle
+    </a>
+    <div class="nav-section-label">Deployment</div>
+    <a class="nav-item" href="#deployment" data-target="deployment">
+      <span class="nav-icon dep">05</span> Beside-Path Topology
+    </a>
+  </nav>
+</aside>
+
+<main class="main">
+  <div class="content">
+
+    <div class="page-head">
+      <h1>Live Monitoring System</h1>
+      <p>
+        The <code>ids/apps/monitor</code> app is a <strong>beside-path</strong> network IDS: it passively
+        sniffs traffic on a Linux bridge, classifies it with the same MLP used offline, and enforces bans
+        <em>out of band</em> via the host firewall — it is never in the forwarding path, so the protected
+        site is never touched. A FastAPI server on <code>:7870</code> streams every decision to a React
+        dashboard over SSE. Three interchangeable packet sources (<code>live</code> / <code>replay</code> /
+        <code>simulate</code>) feed one source-agnostic detector.
+      </p>
+    </div>
+
+    <!-- 01 Detection Pipeline -->
+    <section class="diagram-section" id="pipeline">
+      <div class="section-number">01</div>
+      <h2 class="section-title">End-to-End Detection Pipeline</h2>
+      <p class="section-desc">
+        Packets enter from one of three sources, get grouped into <strong>10-packet tumbling windows per
+        unordered host pair</strong>, and are turned into the <strong>25 CIC-IoT-2023 features</strong> by the
+        exact same <code>extractor.py</code> code used on the offline file path — giving live/offline parity.
+        Each window is then classified by <strong>two models</strong>: a 2-class gate (the ban signal) and an
+        8-class family label. A capture thread does all packet-rate work and hands completed windows to an
+        async consumer over a bounded, drop-oldest queue.
+      </p>
+      <div class="diagram-container">
+        <pre class="mermaid">
+flowchart LR
+  subgraph Sources["Packet Sources (one selected by IDS_SOURCE)"]
+    LIVE["live: LiveCapture<br/><i>raw AF_PACKET on ids-br0<br/>PROMISC mode</i>"]
+    REPLAY["replay: PcapReplay<br/><i>offline pcap/pcapng</i>"]
+    SIM["simulate: FlowSampler<br/><i>real CIC-IoT-2023 flows<br/>from parquet</i>"]
+  end
+
+  subgraph CaptureThread["Capture Thread (packet-rate, no locks)"]
+    WIN["StreamWindower<br/><i>host-pair buckets<br/>10-pkt tumbling window</i>"]
+    FEAT["extractor._window_features<br/><i>25 features — same as<br/>offline file path</i>"]
+  end
+
+  Q(["Bounded queue<br/><i>maxsize 2000<br/>drop-oldest on overflow</i>"])
+
+  subgraph Consumer["Async Consumer (sub-ms, batch-1 MLP)"]
+    GATE["gate_predictor<br/><i>2-class Benign/Attack<br/>BAN SIGNAL</i>"]
+    FAM["family_predictor<br/><i>8-class family label<br/>triage / visual</i>"]
+    EXP["_explain()<br/><i>|scaled-value| saliency<br/>proxy — top 5 feats</i>"]
+    POL["Policy.evaluate()<br/><i>allow / alert / ban</i>"]
+  end
+
+  ENF["Enforcer.ban()<br/><i>nftables (Linux)<br/>or log (dev)</i>"]
+  BRK["SSE Broker<br/><i>fan-out, per-client queue</i>"]
+  SSE(["FastAPI :7870<br/>/api/stream"])
+  UI["React Dashboard<br/><i>SOC console</i>"]
+
+  LIVE --> WIN
+  REPLAY --> WIN
+  SIM -.->|"WindowResult directly<br/>(bypasses windower)"| Q
+  WIN --> FEAT --> Q
+  Q --> GATE
+  Q --> FAM
+  Q --> EXP
+  GATE --> POL
+  POL -->|"decision = ban"| ENF
+  GATE --> BRK
+  FAM --> BRK
+  EXP --> BRK
+  ENF --> BRK
+  BRK --> SSE --> UI
+
+  classDef src fill:#1a2332,stroke:#3d8bfd,color:#e2e6ef
+  classDef cap fill:#1a2b24,stroke:#2dd4a8,color:#e2e6ef
+  classDef con fill:#2a1f2e,stroke:#a78bfa,color:#e2e6ef
+  classDef enf fill:#2a1f1f,stroke:#f0503c,color:#e2e6ef
+  classDef out fill:#2a2418,stroke:#f0a830,color:#e2e6ef
+  classDef q fill:#11141a,stroke:#4a5068,color:#7c849b
+
+  class LIVE,REPLAY,SIM src
+  class WIN,FEAT cap
+  class GATE,FAM,EXP,POL con
+  class ENF enf
+  class BRK,SSE,UI out
+  class Q q
+        </pre>
+      </div>
+      <div class="callout info">
+        <span class="callout-icon">ℹ</span>
+        <div><strong>Two models, one decision:</strong> the <code>gate_predictor</code> (2-class) is the robust signal that drives bans; the <code>family_predictor</code> (8-class) only supplies a label and probabilities for the dashboard. <code>_explain()</code> is a cheap <code>|scaled value|</code> saliency proxy — <strong>not SHAP</strong>. SHAP lives only in the offline analyzer app, never in this live path.</div>
+      </div>
+    </section>
+
+    <!-- 02 Per-Window Sequence -->
+    <section class="diagram-section" id="sequence">
+      <div class="section-number">02</div>
+      <h2 class="section-title">Per-Window Processing Sequence</h2>
+      <p class="section-desc">
+        What happens to a single completed window, from queue pull to published event. The MLP runs
+        <strong>inline, batch-1</strong> in the async consumer. Every window publishes a <code>flow</code>
+        event; the <strong>first</strong> malicious window from a new attacker also emits an <code>alert</code>;
+        only when the policy returns <code>ban</code> does the enforcer fire (off the event loop, in an executor)
+        and emit a <code>ban</code> event.
+      </p>
+      <div class="diagram-container">
+        <pre class="mermaid">
+sequenceDiagram
+    participant CT as Capture Thread
+    participant Q as Bounded Queue
+    participant CN as Async Consumer
+    participant G as gate (2-class)
+    participant F as family (8-class)
+    participant P as Policy
+    participant E as Enforcer (nft)
+    participant B as SSE Broker
+
+    CT->>Q: put WindowResult<br/>(25 feats, ip_a, ip_b)
+    Note over Q: drop-oldest if full<br/>(stats.dropped++)
+    Q->>CN: get WindowResult
+
+    CN->>G: predict(df)
+    G-->>CN: 'Benign' | 'Attack'<br/>+ calibrated confidence
+    CN->>F: predict(df)
+    F-->>CN: family label + probs[8]
+
+    CN->>CN: attacker_ip(a, b, PROTECTED_IPS)<br/>identify non-protected endpoint
+    CN->>P: evaluate(gate_label,<br/>gate_conf, attacker)
+    P-->>CN: 'allow' | 'alert' | 'ban'
+
+    CN->>B: publish {type: flow}<br/>(gate, family, probs, top_features)
+
+    alt first malicious window from this attacker
+        CN->>B: publish {type: alert}
+    end
+
+    alt decision == ban AND not already banned
+        CN->>E: enforcer.ban(ip, family)<br/>(run_in_executor)
+        E-->>CN: BanEntry (ttl)
+        CN->>B: publish {type: ban, ttl_s}
+    end
+
+    Note over CN,B: a separate lifecycle task emits<br/>{type: recovered} when an attacker<br/>goes quiet for RECOVER_AFTER_S (5s)
+        </pre>
+      </div>
+      <div class="callout success">
+        <span class="callout-icon">✓</span>
+        <div><strong>Failure isolation:</strong> <code>_handle()</code> is wrapped so one bad window never kills the detector. A slow dashboard client only drops its own oldest broker events — it can never apply backpressure to detection or to other clients.</div>
+      </div>
+    </section>
+
+    <!-- 03 Ban Policy & Enforcement -->
+    <section class="diagram-section" id="decision">
+      <div class="section-number">03</div>
+      <h2 class="section-title">Ban Policy &amp; Out-of-Band Enforcement</h2>
+      <p class="section-desc">
+        A ban requires <strong>all four gates to pass</strong>: gate verdict = Attack, calibrated confidence
+        ≥ <code>0.60</code>, <strong>N consecutive malicious windows</strong> from the same source (default 2,
+        so one misclassified window can't ban), and the source not in the <code>NEVER_BAN</code> allowlist.
+        Enforcement adds the attacker IP to <strong>two nftables sets</strong> with a TTL timeout — the host
+        kernel then drops its forwarded packets until the ban auto-expires. The protected site is never modified.
+      </p>
+      <div class="diagram-container">
+        <pre class="mermaid">
+flowchart TB
+  IN["Window verdict<br/><i>gate_label, gate_conf, attacker IP</i>"] --> G1{"gate_label<br/>== 'Attack'?"}
+  G1 -->|"Benign"| ALLOW["allow<br/><i>reset attacker streak</i>"]
+  G1 -->|"Attack"| G2{"attacker known<br/>&amp; NOT in<br/>NEVER_BAN?"}
+  G2 -->|"unknown / allowlisted"| ALERT["alert<br/><i>publish, no ban</i>"]
+  G2 -->|"yes"| G3{"gate_conf<br/>&ge; 0.60?"}
+  G3 -->|"below threshold"| ALERT
+  G3 -->|"yes"| G4{"streak &ge; 2<br/>consecutive?"}
+  G4 -->|"not yet"| ALERT
+  G4 -->|"yes"| BAN["ban"]
+
+  BAN --> NFT
+
+  subgraph NFT["NftablesEnforcer (CAP_NET_ADMIN)"]
+    direction TB
+    T1["inet ids · forward hook<br/><i>set 'banned' (ipv4, timeout)<br/>routed traffic</i>"]
+    T2["bridge ids · forward hook<br/><i>set 'banned' (ipv4, timeout)<br/>L2-bridged same-host traffic</i>"]
+  end
+
+  NFT --> DROP["host kernel DROPs<br/>attacker saddr<br/><i>until TTL (120s) expires</i>"]
+  BAN -.->|"LoggingEnforcer<br/>(macOS / dev)"| NOOP["no-op<br/><i>blocklist tracked in memory only</i>"]
+
+  classDef gate fill:#1a2332,stroke:#3d8bfd,color:#e2e6ef
+  classDef pass fill:#1a2b24,stroke:#2dd4a8,color:#e2e6ef
+  classDef alert fill:#2a2418,stroke:#f0a830,color:#e2e6ef
+  classDef ban fill:#2a1f1f,stroke:#f0503c,color:#e2e6ef
+  classDef noop fill:#11141a,stroke:#4a5068,color:#7c849b
+
+  class G1,G2,G3,G4,IN gate
+  class ALLOW pass
+  class ALERT alert
+  class BAN,T1,T2,DROP ban
+  class NOOP noop
+        </pre>
+      </div>
+      <div class="callout warning">
+        <span class="callout-icon">⚠</span>
+        <div><strong>The gate — not the family — drives the ban.</strong> The 8-class family label is informational only. Two nftables tables are required because L2-bridged container-to-container traffic (the demo's attacker↔website) skips the IP <code>forward</code> hook unless <code>br_netfilter</code> is loaded; the <code>bridge</code> family sees it regardless. <code>NEVER_BAN</code> defaults to the mock site (<code>172.30.0.10</code>) and the bridge gateway (<code>172.30.0.1</code>).</div>
+      </div>
+    </section>
+
+    <!-- 04 SSE Event Lifecycle -->
+    <section class="diagram-section" id="events">
+      <div class="section-number">04</div>
+      <h2 class="section-title">SSE Event Lifecycle</h2>
+      <p class="section-desc">
+        The detector publishes four event types to the broker, which fans them out to every dashboard client
+        over <code>GET /api/stream</code>. This is the frozen contract the React frontend consumes. An attacker
+        moves through these states as malicious windows arrive and then stop.
+      </p>
+      <div class="diagram-container">
+        <pre class="mermaid">
+stateDiagram-v2
+    [*] --> Quiet: no traffic attributed
+
+    Quiet --> Flagged: first Attack window<br/>from this source
+    note right of Flagged
+      emits: flow (gate=block)
+      + alert (first time)
+    end note
+
+    Flagged --> Flagged: more Attack windows<br/>(streak grows)<br/>emits: flow
+
+    Flagged --> Banned: streak &ge; 2 AND<br/>conf &ge; 0.60 AND attributable
+    note right of Banned
+      emits: ban (ttl_s)
+      nft set entry added
+    end note
+
+    Banned --> Banned: still attacking<br/>(TTL refreshed, hit_count++)
+
+    Flagged --> Recovered: quiet for<br/>RECOVER_AFTER_S (5s)
+    Banned --> Recovered: quiet for<br/>RECOVER_AFTER_S (5s)
+    note left of Recovered
+      emits: recovered
+      streak reset; nft entry
+      auto-expires at TTL
+    end note
+
+    Recovered --> Quiet
+    Recovered --> [*]
+        </pre>
+      </div>
+      <div class="callout info">
+        <span class="callout-icon">ℹ</span>
+        <div><strong>Other endpoints:</strong> <code>/api/health</code> (mode + model + enforcer), <code>/api/stats</code> (flow/malicious/dropped counters, by-family histogram, banned count), <code>/api/blocklist</code> (in-memory bans, no nft shell-out), and <code>/api/inject</code> (queue attack bursts — simulate mode only). A <code>recovered</code> event auto-expiring the nft entry happens via the TTL, independent of the lifecycle task.</div>
+      </div>
+    </section>
+
+    <!-- 05 Deployment -->
+    <section class="diagram-section" id="deployment">
+      <div class="section-number">05</div>
+      <h2 class="section-title">Beside-Path Deployment Topology</h2>
+      <p class="section-desc">
+        All containers sit on one user-defined bridge (<code>idsnet</code>, <code>172.30.0.0/16</code>, host
+        interface <code>ids-br0</code>). The detector runs <strong>host-networked</strong> with
+        <code>NET_RAW</code> (raw capture) and <code>NET_ADMIN</code> (promiscuous mode + nftables), so it sees
+        every frame the bridge forwards between the attacker swarm and the protected site — and writes drop rules
+        on the <strong>host kernel</strong>. It is <strong>beside the path, never inline</strong>: attacker↔website
+        traffic flows directly through the bridge; the detector only observes and, when it decides to ban, drops
+        the attacker at the firewall.
+      </p>
+      <div class="diagram-container">
+        <pre class="mermaid">
+flowchart TB
+  subgraph Host["VPS Host (Linux kernel)"]
+    subgraph Bridge["idsnet bridge — ids-br0 · 172.30.0.0/16"]
+      WEB["website<br/><i>mock site 'Aperture Cloud'<br/>172.30.0.10 · :80</i>"]
+      A1["attacker ×N<br/><i>swarm, each replica a<br/>distinct 172.30.0.x</i>"]
+    end
+
+    NFT["nftables (host)<br/><i>inet ids + bridge ids<br/>drop @banned saddr</i>"]
+
+    subgraph Det["detector — network_mode: host"]
+      CAP["AF_PACKET sniffer<br/><i>PROMISC on ids-br0<br/>CAP_NET_RAW</i>"]
+      SVC["FastAPI :7870<br/><i>/api/stream · /api/stats<br/>/api/blocklist · /api/health</i>"]
+    end
+  end
+
+  DASH["dashboard<br/><i>React SOC console<br/>:3000</i>"]
+  BROWSER["operator browser"]
+
+  A1 ==>|"attack traffic<br/>(forwarded by bridge)"| WEB
+  WEB -.->|"responses"| A1
+  Bridge -. "every frame mirrored<br/>(promiscuous observe)" .-> CAP
+  CAP --> SVC
+  SVC -->|"writes drop rules"| NFT
+  NFT x==x|"DROPs banned<br/>attacker saddr"| A1
+  SVC -->|"SSE events"| DASH
+  DASH --> BROWSER
+
+  classDef site fill:#1a2b24,stroke:#2dd4a8,color:#e2e6ef
+  classDef atk fill:#2a1f1f,stroke:#f0503c,color:#e2e6ef
+  classDef det fill:#2a1f2e,stroke:#a78bfa,color:#e2e6ef
+  classDef fw fill:#1a2332,stroke:#3d8bfd,color:#e2e6ef
+  classDef ui fill:#2a2418,stroke:#f0a830,color:#e2e6ef
+
+  class WEB site
+  class A1 atk
+  class CAP,SVC det
+  class NFT fw
+  class DASH,BROWSER ui
+        </pre>
+      </div>
+      <div class="callout success">
+        <span class="callout-icon">✓</span>
+        <div><strong>Out-of-band by design:</strong> the detector is a passive sensor plus active responder, not an inline IPS. It never forwards or proxies traffic, so a detector crash or slowdown cannot break connectivity to the protected site. Enforcement is the only side effect, and it acts on the <em>attacker's</em> source IP at the host firewall with an auto-expiring TTL — the protected host (<code>172.30.0.10</code>) is in <code>NEVER_BAN</code> and is never touched.</div>
+      </div>
+    </section>
+
+  </div>
+</main>
+
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'dark',
+    themeVariables: {
+      primaryColor: '#1e2a3a',
+      primaryTextColor: '#e2e6ef',
+      primaryBorderColor: '#3d8bfd',
+      lineColor: '#4a5068',
+      secondaryColor: '#1a2b24',
+      tertiaryColor: '#2a2418',
+      fontFamily: 'IBM Plex Sans, sans-serif',
+      fontSize: '13px',
+      noteBkgColor: '#1a2332',
+      noteTextColor: '#7c849b',
+      noteBorderColor: '#2a2f3c',
+      actorBkg: '#181c24',
+      actorBorder: '#3d8bfd',
+      actorTextColor: '#e2e6ef',
+      signalColor: '#7c849b',
+      signalTextColor: '#e2e6ef',
+      labelBoxBkgColor: '#181c24',
+      labelBoxBorderColor: '#2a2f3c',
+      labelTextColor: '#e2e6ef',
+      loopTextColor: '#7c849b',
+      activationBkgColor: '#1a2b24',
+      activationBorderColor: '#2dd4a8',
+      sequenceNumberColor: '#0a0c10',
+    },
+    flowchart: {
+      curve: 'basis',
+      padding: 16,
+      htmlLabels: true,
+    },
+    sequence: {
+      actorMargin: 40,
+      messageMargin: 30,
+      boxMargin: 8,
+      noteMargin: 8,
+      mirrorActors: false,
+      useMaxWidth: false,
+    },
+    stateDiagram: {
+      useMaxWidth: false,
+    }
+  });
+
+  // Active nav tracking
+  const navItems = document.querySelectorAll('.nav-item');
+  const sections = document.querySelectorAll('.diagram-section');
+
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        navItems.forEach(item => item.classList.remove('active'));
+        const target = document.querySelector(`.nav-item[href="#${entry.target.id}"]`);
+        if (target) target.classList.add('active');
+      }
+    });
+  }, { rootMargin: '-20% 0px -70% 0px' });
+
+  sections.forEach(s => observer.observe(s));
+
+  // Close mobile sidebar on nav click
+  navItems.forEach(item => {
+    item.addEventListener('click', () => {
+      document.querySelector('.sidebar').classList.remove('open');
+    });
+  });
+</script>
+</body>
+</html>
