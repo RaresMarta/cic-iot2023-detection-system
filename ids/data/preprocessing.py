@@ -2,7 +2,8 @@
 
 import numpy as np
 from sklearn.model_selection import train_test_split, GroupShuffleSplit
-from sklearn.preprocessing import RobustScaler
+
+from ids.core.preprocessor import Preprocessor
 
 
 def split_random(y_34: np.ndarray, source_csv: np.ndarray, seed: int):
@@ -79,27 +80,28 @@ SPLIT_FUNCS = {
 
 
 def fit_preprocess(X_all: np.ndarray, train_idx: np.ndarray,
-                   val_idx: np.ndarray, test_idx: np.ndarray):
+                   val_idx: np.ndarray, test_idx: np.ndarray,
+                   x_columns: list[str] | None = None,
+                   log_columns: list[str] | None = None):
     """Fit imputation + RobustScaler on train only; apply to all splits.
 
+    Uses the consolidated Preprocessor class for identical train/serving behavior.
+
     Returns:
-        (X_train, X_val, X_test, scaler, medians)
+        (X_train, X_val, X_test, preprocessor)
     """
-    X_train = X_all[train_idx].copy()
-    X_val = X_all[val_idx].copy()
-    X_test = X_all[test_idx].copy()
+    if x_columns is None:
+        from ids.core.config import X_COLUMNS_SELECTED, LOG_COLUMNS_SELECTED
+        x_columns = X_COLUMNS_SELECTED
+        log_columns = LOG_COLUMNS_SELECTED
 
-    medians = np.nanmedian(X_train, axis=0)
-    medians = np.where(np.isnan(medians), 0.0, medians)
+    X_train = X_all[train_idx].copy().astype(np.float32)
+    X_val = X_all[val_idx].copy().astype(np.float32)
+    X_test = X_all[test_idx].copy().astype(np.float32)
 
-    for arr in (X_train, X_val, X_test):
-        nan_mask = np.isnan(arr)
-        if nan_mask.any():
-            arr[nan_mask] = np.take(medians, np.where(nan_mask)[1])
+    prep = Preprocessor(x_columns, log_columns)
+    X_train, _ = prep.fit(X_train)
+    X_val = prep.transform(X_val)
+    X_test = prep.transform(X_test)
 
-    scaler = RobustScaler()
-    X_train = scaler.fit_transform(X_train).astype(np.float32)
-    X_val = scaler.transform(X_val).astype(np.float32)
-    X_test = scaler.transform(X_test).astype(np.float32)
-
-    return X_train, X_val, X_test, scaler, medians
+    return X_train, X_val, X_test, prep

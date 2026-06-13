@@ -32,7 +32,7 @@ def _softmax(z: np.ndarray) -> np.ndarray:
     return e / e.sum(axis=1, keepdims=True)
 
 
-def run_training(splits=('temporal',), modes=('2', '8'),
+def run_training(splits=('random', 'per_csv'), modes=('2', '8'),
                  wandb_enabled: bool = False, parquet_path=None) -> dict:
     """Train MLP + Random Forest for every (split, mode), persist everything.
 
@@ -64,8 +64,8 @@ def run_training(splits=('temporal',), modes=('2', '8'),
         print(f'\n================ SPLIT: {split} ================')
         tr, va, te = SPLIT_FUNCS[split](y_all_34, source_csv, SEED)
         print(f'split: train={len(tr):,} val={len(va):,} test={len(te):,}')
-        X_train, X_val, X_test, scaler, _ = fit_preprocess(X_all, tr, va, te)
-        artifacts.save_serving_artifacts(split, scaler, X_COLUMNS_SELECTED)
+        X_train, X_val, X_test, prep = fit_preprocess(X_all, tr, va, te)
+        artifacts.save_serving_artifacts(split, prep, X_COLUMNS_SELECTED)
 
         RESULTS: dict = {}
         trees_for_importance = None

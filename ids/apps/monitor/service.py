@@ -21,7 +21,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 
-from ids.runtime.predictor import IDSPredictor  # noqa: E402
+from ids.runtime.predictor import MLPClassifier  # noqa: E402
 
 from . import config, producers  # noqa: E402
 from .detector import Detector  # noqa: E402
@@ -30,11 +30,23 @@ from .events import Broker  # noqa: E402
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    gate_predictor = IDSPredictor(config.MODELS_DIR, split=config.MODEL_SPLIT, mode=config.MODEL_MODE_GATE)
-    family_predictor = IDSPredictor(config.MODELS_DIR, split=config.MODEL_SPLIT, mode=config.MODEL_MODE_FAMILY)
+    gate_predictor = MLPClassifier(config.MODELS_DIR, split=config.MODEL_SPLIT, mode=config.MODEL_MODE_GATE)
+    family_predictor = MLPClassifier(config.MODELS_DIR, split=config.MODEL_SPLIT, mode=config.MODEL_MODE_FAMILY)
     producer, inject_queue = producers.from_config()
     broker = Broker()
-    detector = Detector(producer, gate_predictor, family_predictor, broker)
+
+    # Per-alert SHAP on the gate verdict; degrades to the saliency proxy if shap or
+    # the background parquet is unavailable (e.g. a slim live image without the data).
+    explainer = None
+    try:
+        from ids.runtime.explain import FlowExplainer
+        from ids.data.sampler import FlowSampler
+        explainer = FlowExplainer(gate_predictor, FlowSampler())
+        print('[service] live SHAP enabled (gate explainer)', flush=True)
+    except Exception as e:
+        print(f'[service] live SHAP unavailable, alerts use saliency proxy: {e}', flush=True)
+
+    detector = Detector(producer, gate_predictor, family_predictor, broker, explainer)
     app.state.detector = detector
     app.state.broker = broker
     app.state.inject_queue = inject_queue          # None unless simulate mode

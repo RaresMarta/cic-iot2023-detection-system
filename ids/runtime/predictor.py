@@ -2,8 +2,8 @@
 
 Two servable backends share the same preprocessing and the same output contract, so the
 web app can swap between them by key without any downstream change:
-  IDSPredictor  — the PyTorch MLP, with temperature-scaled (calibrated) confidence.
-  TreePredictor — the Random Forest baseline (sklearn ``predict_proba``).
+  MLPClassifier  — the PyTorch MLP, with temperature-scaled (calibrated) confidence.
+  RFClassifier   — the Random Forest baseline (sklearn ``predict_proba``).
 """
 from __future__ import annotations
 
@@ -19,23 +19,32 @@ from ids.core.models import IDSModel
 
 
 class _BasePredictor:
-    """Loads the artefacts every model variant shares (feature columns, scaler, encoder)
-    and the preprocessing they must all apply identically. Subclasses load their own model
-    and implement ``predict``."""
+    """Shared preprocessing + artifacts for all predictors; subclasses implement predict()."""
 
-    def __init__(self, models_dir: Path, split: str = 'temporal', mode: str = '2'):
+    def __init__(self, models_dir: Path, split: str = 'random', mode: str = '2'):
         self.models_dir = Path(models_dir)
         self.split = split
         self.mode = mode
 
-        # The exact 25-feature column set the models were trained on, persisted at
-        # training time; fall back to the full config list only if absent.
         fc_path = self.models_dir / 'feature_columns.joblib'
         self.x_columns = list(joblib.load(fc_path)) if fc_path.exists() else list(CONFIG_X_COLUMNS)
         flags = set(CONFIG_FLAG_COLUMNS)
         self.log_columns = [c for c in self.x_columns if c not in flags]
 
-        self.scaler  = joblib.load(self.models_dir / f'scaler_{split}.joblib')
+        # Load the consolidated Preprocessor; fall back to scaler for backward compatibility
+        prep_path = self.models_dir / f'preprocessor_{split}.joblib'
+        if prep_path.exists():
+            self.preprocessor = joblib.load(prep_path)
+        else:
+            from ids.core.preprocessor import Preprocessor
+            scaler = joblib.load(self.models_dir / f'scaler_{split}.joblib')
+            self.preprocessor = Preprocessor(self.x_columns, self.log_columns)
+            self.preprocessor.scaler = scaler
+            # The legacy artifact carries no fitted medians; fill residual nulls with
+            # 0 in the post-log1p space, matching the original serving path so the
+            # backward-compatible fallback is actually usable (not just constructed).
+            self.preprocessor.medians = np.zeros(len(self.x_columns), dtype=np.float32)
+
         self.encoder = joblib.load(self.models_dir / f'label_encoder_{split}_{mode}class.joblib')
 
     def preprocess(self, df: pl.DataFrame) -> np.ndarray:
@@ -43,17 +52,8 @@ class _BasePredictor:
         if missing:
             raise ValueError(f'Input CSV is missing required CIC features: {missing}')
 
-        df = df.select(self.x_columns)
-        df = df.with_columns([
-            pl.when(pl.col(c).is_infinite()).then(None).otherwise(pl.col(c)).alias(c)
-            for c in self.x_columns
-        ])
-        df = df.with_columns([pl.col(c).log1p().alias(c) for c in self.log_columns])
-
-        X = df.to_numpy().astype(np.float32)
-        X = np.where(np.isnan(X), 0.0, X)
-
-        return self.scaler.transform(X).astype(np.float32)
+        X = df.select(self.x_columns).to_numpy().astype(np.float32)
+        return self.preprocessor.transform(X)
 
     def _result(self, probs: np.ndarray) -> dict:
         """Shared output contract: labels, confidences, probabilities, class names."""
@@ -69,13 +69,19 @@ class _BasePredictor:
         raise NotImplementedError
 
 
-class IDSPredictor(_BasePredictor):
+class MLPClassifier(_BasePredictor):
     """The PyTorch MLP, with optional temperature-scaled (calibrated) confidence."""
 
-    def __init__(self, models_dir: Path, split: str = 'temporal', mode: str = '2',
+    def __init__(self, models_dir: Path, split: str = 'random', mode: str = '2',
                  device: str | None = None):
         super().__init__(models_dir, split, mode)
-        self.device = torch.device(device or ('cuda' if torch.cuda.is_available() else 'cpu'))
+        if device is None:
+            device = (
+                'mps' if torch.backends.mps.is_available()
+                else 'cuda' if torch.cuda.is_available()
+                else 'cpu'
+            )
+        self.device = torch.device(device)
         n_classes = len(self.encoder.classes_)
 
         self.model = IDSModel(len(self.x_columns), n_classes).to(self.device)
@@ -102,12 +108,10 @@ class IDSPredictor(_BasePredictor):
         return self._result(probs)
 
 
-class TreePredictor(_BasePredictor):
-    """A serialised sklearn Random Forest baseline (kind 'rf'), served with the same
-    preprocessing and output contract as the MLP. No temperature scaling — the forest
-    produces its own probability estimates. (Generic over `kind` for future baselines.)"""
+class RFClassifier(_BasePredictor):
+    """Random Forest classifier with same preprocessing contract as MLP."""
 
-    def __init__(self, models_dir: Path, kind: str, split: str = 'temporal', mode: str = '2'):
+    def __init__(self, models_dir: Path, kind: str, split: str = 'random', mode: str = '2'):
         super().__init__(models_dir, split, mode)
         self.kind = kind
         self.model = joblib.load(self.models_dir / f'ids_{kind}_{split}_{mode}class.joblib')

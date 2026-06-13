@@ -65,7 +65,7 @@ N_FEATURES_SELECTED = len(X_COLUMNS_SELECTED)  # 25
 
 # Tasks & splits
 MODES_TO_RUN = ['2', '8']
-SPLITS_TO_RUN = ['temporal']
+SPLITS_TO_RUN = ['random', 'per_csv']
 
 # Training
 BATCH_SIZE = 4096

@@ -23,6 +23,10 @@ PAPER_NUMBERS = Path('_paper_numbers.json')
 
 # ── Path helpers (single source of artifact names) ──────────────────────────
 
+def preprocessor_path(split: str, models_dir=MODELS_DIR) -> Path:
+    return models_dir / f'preprocessor_{split}.joblib'
+
+
 def scaler_path(split: str, models_dir=MODELS_DIR) -> Path:
     return models_dir / f'scaler_{split}.joblib'
 
@@ -58,8 +62,8 @@ def perm_importance_path(models_dir=MODELS_DIR) -> Path:
 
 # ── Save / load ──────────────────────────────────────────────────────────────
 
-def save_serving_artifacts(split: str, scaler, feat_cols, models_dir=MODELS_DIR):
-    joblib.dump(scaler, scaler_path(split, models_dir))
+def save_serving_artifacts(split: str, preprocessor, feat_cols, models_dir=MODELS_DIR):
+    joblib.dump(preprocessor, preprocessor_path(split, models_dir))
     joblib.dump(list(feat_cols), feature_columns_path(models_dir))
 
 

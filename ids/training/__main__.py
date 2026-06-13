@@ -16,7 +16,7 @@ def main() -> None:
         prog='python -m training',
         description='Retrain MLP + RF and regenerate all artifacts, '
                     'the metrics cache, calibration, and the paper numbers.')
-    p.add_argument('--splits', nargs='+', default=['temporal'],
+    p.add_argument('--splits', nargs='+', default=['random', 'per_csv'],
                    choices=['temporal', 'per_csv', 'random'],
                    help='splits to run (first one is the headline: its calibration '
                         'artifact is the one served)')

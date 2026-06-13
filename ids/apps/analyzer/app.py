@@ -18,11 +18,11 @@ from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
 from ids.core.config import MODELS_DIR
-from ids.runtime.predictor import IDSPredictor, TreePredictor
+from ids.runtime.predictor import MLPClassifier, RFClassifier
 
 
 def _parse(stem: str) -> tuple[str, str] | None:
-    """('temporal', '2') from 'ids_dnn_temporal_2class' (split may contain underscores)."""
+    """('random', '2') from 'ids_dnn_random_2class' (split may contain underscores)."""
     parts = stem.split('_')
     if len(parts) < 4 or not parts[-1].endswith('class'):
         return None
@@ -30,12 +30,7 @@ def _parse(stem: str) -> tuple[str, str] | None:
 
 
 def discover_predictors() -> dict:
-    """Discover every servable variant on disk, keyed 'model_type/split/mode'.
-
-    The MLP is stored as ids_dnn_*.pth (model_type 'mlp'); the Random Forest as
-    ids_rf_*.joblib. The web app selects one by the model_type the frontend sends,
-    so each model card is backed by a real model.
-    """
+    """Load all trained models from disk, keyed 'model_type/split/mode'."""
     found: dict = {}
     for ckpt in MODELS_DIR.glob('ids_dnn_*_*class.pth'):
         sm = _parse(ckpt.stem)
@@ -43,7 +38,7 @@ def discover_predictors() -> dict:
             continue
         split, mode = sm
         try:
-            found[f'mlp/{split}/{mode}'] = IDSPredictor(MODELS_DIR, split=split, mode=mode)
+            found[f'mlp/{split}/{mode}'] = MLPClassifier(MODELS_DIR, split=split, mode=mode)
         except FileNotFoundError:
             continue
     for kind in ('rf',):
@@ -53,7 +48,7 @@ def discover_predictors() -> dict:
                 continue
             split, mode = sm
             try:
-                found[f'{kind}/{split}/{mode}'] = TreePredictor(MODELS_DIR, kind, split=split, mode=mode)
+                found[f'{kind}/{split}/{mode}'] = RFClassifier(MODELS_DIR, kind, split=split, mode=mode)
             except FileNotFoundError:
                 continue
     return found
@@ -74,7 +69,7 @@ if not PREDICTORS:
 # in which case classification still works — it just omits `top_features`.
 # NOTE: the live :7870 path keeps its cheap |scaled-value| saliency proxy on
 # purpose (SHAP is too slow per captured window) — do not wire SHAP there.
-EXPLAIN_KEY = 'mlp/temporal/8'
+EXPLAIN_KEY = 'mlp/random/8'
 EXPLAINER = None
 if EXPLAIN_KEY in PREDICTORS:
     try:
@@ -110,13 +105,7 @@ def _aggregate(pred: dict) -> dict:
 
 def _explain_dominant(predictor, predictor_key: str, df: pl.DataFrame, pred: dict,
                       top_label: str, top_k: int = 8) -> list[dict] | None:
-    """SHAP explanation for the flow that best represents the dominant verdict.
-
-    Returns the frontend's [{feature, contribution}] shape (signed SHAP value as
-    `contribution`), or None — never raises, so a SHAP failure can't fail a
-    classification. Only runs when the request used the explainer's own predictor,
-    so the attributions match the model that produced the prediction.
-    """
+    """SHAP explanation for the dominant prediction; returns None if unavailable."""
     if EXPLAINER is None or predictor_key != EXPLAIN_KEY:
         return None
     try:
@@ -152,7 +141,7 @@ async def classify_endpoint(
     file:       UploadFile = File(...),
     model_type: str        = Form('mlp'),
     mode:       str        = Form('2'),
-    split:      str        = Form('temporal'),
+    split:      str        = Form('random'),
 ):
     predictor_key = f'{model_type}/{split}/{mode}'
     if predictor_key not in PREDICTORS:

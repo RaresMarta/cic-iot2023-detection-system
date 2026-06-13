@@ -42,11 +42,12 @@ def attacker_ip(ip_a: str, ip_b: str, protected: set[str]) -> str | None:
 
 class Detector:
     def __init__(self, producer: WindowProducer, gate_predictor, family_predictor,
-                 broker: Broker):
+                 broker: Broker, explainer=None):
         self.producer = producer
         self.gate_predictor = gate_predictor       # 2-class Benign/Attack (alert trigger)
         self.family_predictor = family_predictor   # 8-class family (label/visual)
         self.broker = broker
+        self.explainer = explainer                 # optional gate SHAP; proxy fallback
         self._q: queue.Queue = queue.Queue(maxsize=config.QUEUE_MAXSIZE)
         self._stop = threading.Event()
         self._capture_thread: threading.Thread | None = None
@@ -115,17 +116,25 @@ class Detector:
         df = pl.DataFrame([wr.features]).select(self.family_predictor.x_columns)
         # 2-class gate drives the decision; 8-class gives the family label/probabilities.
         gate = self.gate_predictor.predict(df)
-        fam = self.family_predictor.predict(df)
         gate_label = str(gate['labels'][0])          # 'Benign' | 'Attack'
         gate_conf = float(gate['confidences'][0])
-        family = str(fam['labels'][0])
-        fam_conf = float(fam['confidences'][0])
-        probs = {n: float(p) for n, p in zip(fam['class_names'], fam['probabilities'][0])}
+
+        malicious = gate_label != 'Benign'
+        # Only classify family if malicious (skip expensive 8-class inference for benign flows)
+        if malicious:
+            fam = self.family_predictor.predict(df)
+            family = str(fam['labels'][0])
+            fam_conf = float(fam['confidences'][0])
+            probs = {n: float(p) for n, p in zip(fam['class_names'], fam['probabilities'][0])}
+        else:
+            family = 'Benign'
+            fam_conf = gate_conf
+            probs = {'Benign': 1.0, 'DDoS': 0.0, 'DoS': 0.0, 'Mirai': 0.0,
+                     'Recon': 0.0, 'Spoofing': 0.0, 'Web': 0.0, 'BruteForce': 0.0}
 
         atk = attacker_ip(wr.ip_a, wr.ip_b, config.PROTECTED_IPS)
         protected = wr.ip_b if atk == wr.ip_a else wr.ip_a
 
-        malicious = gate_label != 'Benign'
         self.stats['flows_total'] += 1
         self.stats['by_family'][family] += 1
         if malicious:
@@ -152,8 +161,14 @@ class Detector:
             state = self._active.get(atk)
             if state is None:                               # first malicious window
                 self._active[atk] = {'last_malicious': now, 'family': family}
+                # One real SHAP attribution per attack episode (here, not per window);
+                # runs off the event loop and falls back to the per-window proxy.
+                reasons = await loop.run_in_executor(None, self._shap_gate, df, wr.features)
+                if not reasons:
+                    reasons = self._explain(wr.features, probs)
                 self.broker.publish({'type': 'alert', 'ts': now, 'attacker_ip': atk,
-                                     'family': family, 'confidence': gate_conf})
+                                     'family': family, 'confidence': gate_conf,
+                                     'top_features': reasons})
             else:
                 state['last_malicious'] = now
                 state['family'] = family
@@ -171,7 +186,24 @@ class Detector:
         except asyncio.CancelledError:
             pass
 
-    # ── cheap live explanation (SHAP is reserved for the simulate path) ────────
+    # ── per-alert SHAP attribution for the gate's Attack verdict ───────────────
+    def _shap_gate(self, df: pl.DataFrame, features: dict, top_k: int = 6) -> list[dict] | None:
+        """Real SHAP for why the 2-class gate flagged this source. Runs once per
+        attack episode (in the consumer's executor); None on any failure."""
+        if self.explainer is None:
+            return None
+        try:
+            classes = list(self.gate_predictor.encoder.classes_)
+            attack_idx = classes.index('Attack') if 'Attack' in classes else 0
+            x_scaled = self.gate_predictor.preprocess(df)[0]
+            reasons = self.explainer.explain(x_scaled, features, attack_idx, top_k=top_k)
+            return [{'feature': r['feature'], 'contribution': r['shap'],
+                     'direction': r['direction']} for r in reasons]
+        except Exception as e:
+            print(f'[detector] gate SHAP skipped: {e}', flush=True)
+            return None
+
+    # ── cheap per-window saliency proxy (every flow); SHAP runs per alert ──────
     def _explain(self, features: dict, probs: dict, top_k: int = 5) -> list[dict]:
         # |scaled value| as a quick saliency proxy; ranks which features stood out.
         try:
