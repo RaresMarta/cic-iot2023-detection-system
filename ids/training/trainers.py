@@ -59,8 +59,12 @@ def mlp_logits(model, X: np.ndarray, batch_size: int = BATCH_SIZE) -> np.ndarray
 
 
 def train_rf(X_train, y_tr, seed: int = SEED) -> RandomForestClassifier:
-    rf = RandomForestClassifier(n_estimators=200, max_depth=20,
-                                class_weight='balanced', n_jobs=-1, random_state=seed)
+    """Random Forest with hyperparameters from the Optuna search (run_hpo_rf,
+    temporal/8-class, val macro-F1 0.670); see the thesis methodology chapter."""
+    rf = RandomForestClassifier(n_estimators=450, max_depth=33,
+                                min_samples_split=7, min_samples_leaf=6,
+                                max_features=0.5, class_weight='balanced',
+                                n_jobs=-1, random_state=seed)
     rf.fit(X_train, y_tr)
 
     return rf
