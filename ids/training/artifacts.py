@@ -35,6 +35,11 @@ def weights_path(split: str, mode: str, models_dir=MODELS_DIR) -> Path:
     return models_dir / f'ids_dnn_{split}_{mode}class.pth'
 
 
+def tree_model_path(split: str, mode: str, kind: str, models_dir=MODELS_DIR) -> Path:
+    """Serialised tree baseline (kind 'rf' or 'xgb'), servable alongside the MLP."""
+    return models_dir / f'ids_{kind}_{split}_{mode}class.joblib'
+
+
 def run_artifacts_path(split: str, mode: str, models_dir=MODELS_DIR) -> Path:
     return models_dir / f'run_artifacts_{split}_{mode}class.joblib'
 
@@ -56,6 +61,14 @@ def perm_importance_path(models_dir=MODELS_DIR) -> Path:
 def save_serving_artifacts(split: str, scaler, feat_cols, models_dir=MODELS_DIR):
     joblib.dump(scaler, scaler_path(split, models_dir))
     joblib.dump(list(feat_cols), feature_columns_path(models_dir))
+
+
+def save_tree_model(model, split: str, mode: str, kind: str, models_dir=MODELS_DIR):
+    """Persist a trained tree baseline so the analyzer can serve it like the MLP.
+
+    Compressed: a depth-20 RandomForest on ~1M rows is ~170 MB raw; compression
+    brings the served artefact down to a deployable size."""
+    joblib.dump(model, tree_model_path(split, mode, kind, models_dir), compress=3)
 
 
 def save_encoder(le, split: str, mode: str, models_dir=MODELS_DIR):

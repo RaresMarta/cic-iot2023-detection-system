@@ -18,21 +18,44 @@ from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
 from ids.core.config import MODELS_DIR
-from ids.runtime.predictor import IDSPredictor
+from ids.runtime.predictor import IDSPredictor, TreePredictor
 
 
-def discover_predictors() -> dict[str, IDSPredictor]:
-    found: dict[str, IDSPredictor] = {}
+def _parse(stem: str) -> tuple[str, str] | None:
+    """('temporal', '2') from 'ids_dnn_temporal_2class' (split may contain underscores)."""
+    parts = stem.split('_')
+    if len(parts) < 4 or not parts[-1].endswith('class'):
+        return None
+    return '_'.join(parts[2:-1]), parts[-1].removesuffix('class')
+
+
+def discover_predictors() -> dict:
+    """Discover every servable variant on disk, keyed 'model_type/split/mode'.
+
+    The MLP is stored as ids_dnn_*.pth (model_type 'mlp'); the tree baselines as
+    ids_rf_*.joblib / ids_xgb_*.joblib. The web app selects one by the model_type
+    the frontend sends, so all three cards are backed by real models.
+    """
+    found: dict = {}
     for ckpt in MODELS_DIR.glob('ids_dnn_*_*class.pth'):
-        parts = ckpt.stem.split('_')
-        if len(parts) < 4 or not parts[-1].endswith('class'):
+        sm = _parse(ckpt.stem)
+        if sm is None:
             continue
-        mode  = parts[-1].removesuffix('class')
-        split = '_'.join(parts[2:-1])
+        split, mode = sm
         try:
-            found[f'{split} / {mode}-class'] = IDSPredictor(MODELS_DIR, split=split, mode=mode)
+            found[f'mlp/{split}/{mode}'] = IDSPredictor(MODELS_DIR, split=split, mode=mode)
         except FileNotFoundError:
             continue
+    for kind in ('rf', 'xgb'):
+        for ckpt in MODELS_DIR.glob(f'ids_{kind}_*_*class.joblib'):
+            sm = _parse(ckpt.stem)
+            if sm is None:
+                continue
+            split, mode = sm
+            try:
+                found[f'{kind}/{split}/{mode}'] = TreePredictor(MODELS_DIR, kind, split=split, mode=mode)
+            except FileNotFoundError:
+                continue
     return found
 
 
@@ -51,7 +74,7 @@ if not PREDICTORS:
 # in which case classification still works — it just omits `top_features`.
 # NOTE: the live :7870 path keeps its cheap |scaled-value| saliency proxy on
 # purpose (SHAP is too slow per captured window) — do not wire SHAP there.
-EXPLAIN_KEY = 'temporal / 8-class'
+EXPLAIN_KEY = 'mlp/temporal/8'
 EXPLAINER = None
 if EXPLAIN_KEY in PREDICTORS:
     try:
@@ -131,7 +154,7 @@ async def classify_endpoint(
     mode:       str        = Form('2'),
     split:      str        = Form('temporal'),
 ):
-    predictor_key = f'{split} / {mode}-class'
+    predictor_key = f'{model_type}/{split}/{mode}'
     if predictor_key not in PREDICTORS:
         available = list(PREDICTORS.keys())
         return {'error': f'Model {predictor_key!r} not found. Available: {available}'}

@@ -105,6 +105,7 @@ def run_training(splits=('temporal',), modes=('2', '8'),
             print('  [RF] training...')
             rf = train_rf(X_train, y_tr)
             models_mem[(split, mode, 'rf')] = rf
+            artifacts.save_tree_model(rf, split, mode, 'rf')
             for part, Xs, ys in (('test', X_test, y_te), ('val', X_val, y_va),
                                  ('train', X_train, y_tr)):
                 RESULTS[(f'mode{mode}', 'rf', part)] = metrics5(ys, rf.predict(Xs))
@@ -118,6 +119,7 @@ def run_training(splits=('temporal',), modes=('2', '8'),
             print('  [XGB] training...')
             xgb_clf = train_xgb(X_train, y_tr, K)
             models_mem[(split, mode, 'xgb')] = xgb_clf
+            artifacts.save_tree_model(xgb_clf, split, mode, 'xgb')
             for part, Xs, ys in (('test', X_test, y_te), ('val', X_val, y_va),
                                  ('train', X_train, y_tr)):
                 RESULTS[(f'mode{mode}', 'xgb', part)] = metrics5(ys, xgb_clf.predict(Xs))
@@ -150,8 +152,10 @@ def run_training(splits=('temporal',), modes=('2', '8'),
 
     artifacts.save_results(results_all, calibration)
     artifacts.save_paper_numbers(results_all, calibration, splits[0], modes)
+
     print(f'\nDONE in {(time.time() - t0) / 60:.1f} min — wrote '
           f'{artifacts.RESULTS_CACHE}, {artifacts.RESULTS_SUMMARY}, '
           f'{artifacts.PAPER_NUMBERS}')
+
     return {'splits': results_all, 'calibration': calibration,
             'models': models_mem, 'encoders': encoders_mem}
