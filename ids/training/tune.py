@@ -20,6 +20,18 @@ from ids.core.models import IDSDataset, IDSModel, train_model, evaluate
 from ids.data.preprocessing import fit_preprocess
 
 
+def _log_optuna_plots(run, study) -> None:
+    """Log Optuna study visualisations (optimization history + param importances)
+    to the active wandb run. No-op if plotly/optuna.visualization is unavailable
+    or there are too few completed trials."""
+    try:
+        import optuna.visualization as ov
+        run.log({"optuna/optimization_history": ov.plot_optimization_history(study),
+                 "optuna/param_importances": ov.plot_param_importances(study)})
+    except Exception as e:
+        print(f"  [wandb] optuna plots skipped: {e}")
+
+
 def run_hpo(
     X_all: np.ndarray,
     y_all_34: np.ndarray,
@@ -111,6 +123,7 @@ def run_hpo(
         run = wandb.init(project="cic-iot2023-ids", name="optuna-mlp-best-trial",
                          job_type="hparam-search")
         run.log({"best_val_macro_f1": study.best_value, **best})
+        _log_optuna_plots(run, study)
         wandb.finish()
 
     return best
@@ -182,6 +195,7 @@ def run_hpo_rf(
         run = wandb.init(project="cic-iot2023-ids", name="optuna-rf-best-trial",
                          job_type="hparam-search")
         run.log({"best_val_macro_f1": study.best_value, **best})
+        _log_optuna_plots(run, study)
         wandb.finish()
 
     return best

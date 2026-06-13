@@ -26,6 +26,12 @@ from ids.training.tracking import Tracker
 __all__ = ['run_training']
 
 
+def _softmax(z: np.ndarray) -> np.ndarray:
+    z = z - z.max(axis=1, keepdims=True)
+    e = np.exp(z)
+    return e / e.sum(axis=1, keepdims=True)
+
+
 def run_training(splits=('temporal',), modes=('2', '8'),
                  wandb_enabled: bool = False, parquet_path=None) -> dict:
     """Train MLP + Random Forest for every (split, mode), persist everything.
@@ -42,11 +48,11 @@ def run_training(splits=('temporal',), modes=('2', '8'),
     torch.manual_seed(SEED)
     np.random.seed(SEED)
     t0 = time.time()
-    tracker = Tracker(enabled=wandb_enabled)
+    tracker = Tracker(enabled=wandb_enabled,
+                      name=f"train-{splits[0]}-{'+'.join(str(m) for m in modes)}class")
     print(f'device={device} | features={len(X_COLUMNS_SELECTED)}')
 
-    X_all, y_all_34, source_csv = (load_dataset(parquet_path) if parquet_path
-                                   else load_dataset())
+    X_all, y_all_34, source_csv = (load_dataset(parquet_path) if parquet_path else load_dataset())
     print(f'rows={len(y_all_34):,}')
 
     results_all: dict = {}
@@ -93,13 +99,16 @@ def run_training(splits=('temporal',), modes=('2', '8'),
             RESULTS[f'mlp_cm_{mode}'] = evals['test']['confusion_matrix']
             artifacts.save_run_artifacts(history, evals['test']['y_true'],
                                          evals['test']['y_pred'], split, mode)
+            test_logits = mlp_logits(model, X_test)
             artifacts.save_logits(split, mode,
                                   mlp_logits(model, X_val), y_va,
-                                  mlp_logits(model, X_test), y_te)
+                                  test_logits, y_te)
             tm = RESULTS[(f'mode{mode}', 'mlp', 'test')]
             print(f'    MLP test: acc={tm["accuracy"]:.4f} wF1={tm["weighted_f1"]:.4f}')
-            tracker.log_model(split, mode, 'mlp',
-                              {'arch': '[128, 64]', 'dropout': 0.3}, tm)
+            tracker.log_history(split, mode, 'mlp', history)
+            tracker.log_eval(split, mode, 'mlp', class_names,
+                             evals['test']['y_true'], evals['test']['y_pred'],
+                             _softmax(test_logits))
 
             # ---- Random Forest ----
             print('  [RF] training...')
@@ -109,11 +118,11 @@ def run_training(splits=('temporal',), modes=('2', '8'),
             for part, Xs, ys in (('test', X_test, y_te), ('val', X_val, y_va),
                                  ('train', X_train, y_tr)):
                 RESULTS[(f'mode{mode}', 'rf', part)] = metrics5(ys, rf.predict(Xs))
-            rep, _ = report_and_confusion(y_te, rf.predict(X_test), class_names)
+            rf_te_pred = rf.predict(X_test)
+            rep, _ = report_and_confusion(y_te, rf_te_pred, class_names)
             RESULTS[f'rf_report_{mode}'] = rep
-            tracker.log_model(split, mode, 'rf',
-                              {'n_estimators': 200, 'max_depth': 20},
-                              RESULTS[(f'mode{mode}', 'rf', 'test')])
+            tracker.log_eval(split, mode, 'rf', class_names, y_te, rf_te_pred,
+                             rf.predict_proba(X_test))
 
             if mode == '8':
                 trees_for_importance = (rf, X_test, y_te)
@@ -138,6 +147,9 @@ def run_training(splits=('temporal',), modes=('2', '8'),
 
     artifacts.save_results(results_all, calibration)
     artifacts.save_paper_numbers(results_all, calibration, splits[0], modes)
+
+    tracker.log_comparison(results_all, modes)
+    tracker.finish()
 
     print(f'\nDONE in {(time.time() - t0) / 60:.1f} min — wrote '
           f'{artifacts.RESULTS_CACHE}, {artifacts.RESULTS_SUMMARY}, '

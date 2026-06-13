@@ -86,7 +86,7 @@ def train_model(model: nn.Module, train_loader, val_loader,
     best_val_loss = float('inf')
     best_state = None
     patience_counter = 0
-    history = {'train_loss': [], 'val_loss': [], 'lr': []}
+    history = {'train_loss': [], 'val_loss': [], 'val_macro_f1': [], 'lr': []}
 
     for epoch in range(n_epochs):
         model.train()
@@ -104,22 +104,31 @@ def train_model(model: nn.Module, train_loader, val_loader,
 
         model.eval()
         running = 0.0
+        val_preds, val_true = [], []
         with torch.no_grad():
             for Xb, yb in val_loader:
                 Xb, yb = Xb.to(device, non_blocking=True), yb.to(device, non_blocking=True)
                 with autocast('cuda', enabled=use_amp):
-                    loss = criterion(model(Xb), yb)
+                    out = model(Xb)
+                    loss = criterion(out, yb)
                 running += loss.item() * Xb.size(0)
+                val_preds.append(out.argmax(dim=1).cpu().numpy())
+                val_true.append(yb.cpu().numpy())
         val_loss = running / len(val_loader.dataset)
+        val_macro_f1 = f1_score(np.concatenate(val_true), np.concatenate(val_preds),
+                                average='macro', zero_division=0)
 
         scheduler.step(val_loss)
         current_lr = optimizer.param_groups[0]['lr']
         history['train_loss'].append(train_loss)
         history['val_loss'].append(val_loss)
+        history['val_macro_f1'].append(val_macro_f1)
         history['lr'].append(current_lr)
-        print(f'  Epoch {epoch+1:02d} — train: {train_loss:.4f} — val: {val_loss:.4f} — lr: {current_lr:.2e}')
+        print(f'  Epoch {epoch+1:02d} — train: {train_loss:.4f} — val: {val_loss:.4f} '
+              f'— valMacroF1: {val_macro_f1:.4f} — lr: {current_lr:.2e}')
         if run is not None:
-            run.log({'train_loss': train_loss, 'val_loss': val_loss, 'lr': current_lr}, step=epoch + 1)
+            run.log({'train_loss': train_loss, 'val_loss': val_loss,
+                     'val_macro_f1': val_macro_f1, 'lr': current_lr}, step=epoch + 1)
 
         if val_loss < best_val_loss:
             best_val_loss = val_loss
