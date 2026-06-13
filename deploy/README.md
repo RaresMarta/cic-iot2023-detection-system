@@ -1,8 +1,14 @@
 # Deployment — live IDS demo
 
+> **Scope note (current build):** the system runs as a **passive NIDS — it detects and
+> alerts, it does not block.** The IP-enforcement layer (nftables banning) has been
+> removed; the run/verify steps below that mention bans, nftables, or the blocklist are
+> retained as a reference for a future IPS iteration and do **not** reflect the current
+> build.
+
 Three components on one Linux host, plus an on-demand attacker swarm. The detector is
-a passive, co-located sensor that bans malicious sources out-of-band at the host
-firewall (a flow-based NIDS with automated response — not an inline IPS).
+a passive, co-located sensor that flags malicious sources (a flow-based NIDS; the
+out-of-band firewall response is out of scope in the current build).
 
 ## Topology
 

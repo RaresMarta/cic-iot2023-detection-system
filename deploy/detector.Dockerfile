@@ -1,11 +1,6 @@
-# Live detector image. Runs with network_mode: host + NET_ADMIN/NET_RAW so it can
-# sniff the bridge interface and write nftables on the host.
+# Live detector image. Runs with network_mode: host + NET_RAW so it can sniff the
+# bridge interface with real per-source IPs (passive: detect + alert, no blocking).
 FROM python:3.11-slim
-
-# nftables for enforcement; libpcap not needed (raw AF_PACKET socket via stdlib).
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        nftables \
-    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 

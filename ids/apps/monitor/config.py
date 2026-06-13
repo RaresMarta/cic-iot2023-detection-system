@@ -1,8 +1,8 @@
-"""Configuration + ban policy for the live beside-path NIDS.
+"""Configuration for the live beside-path NIDS.
 
 All values are overridable via environment variables so the same image runs in
-offline-dev (Mac, pcap replay, logging enforcer) and on the Linux VPS (live
-capture, nftables) without code changes.
+offline-dev (Mac, pcap replay) and on the Linux VPS (live capture) without code
+changes.
 """
 from __future__ import annotations
 
@@ -51,30 +51,13 @@ MIN_PARTIAL = _env_int('IDS_MIN_PARTIAL', 2)
 # Queue: capture thread → async consumer (drop-oldest on overflow)
 QUEUE_MAXSIZE = _env_int('IDS_QUEUE_MAXSIZE', 2000)
 
-# Protected IPs: never banned (mock website + bridge gateway)
+# Protected IPs: identifies the monitored target so the attacker side of a flow
+# can be attributed (mock website + bridge gateway).
 PROTECTED_IPS = _env_set('IDS_PROTECTED_IPS', {'172.30.0.10'})
-NEVER_BAN = _env_set('IDS_NEVER_BAN', {'172.30.0.10', '172.30.0.1'})
-# Ban: threshold 0.6 + consecutive windows (robustness vs domain shift)
-BAN_THRESHOLD = _env_float('IDS_BAN_THRESHOLD', 0.60)
-CONSECUTIVE_FOR_BAN = _env_int('IDS_CONSECUTIVE_FOR_BAN', 2)
-# Ban lifetime and recovery window
-BAN_TTL_S = _env_int('IDS_BAN_TTL_S', 120)
+# An active attacker is considered recovered after this many idle seconds.
 RECOVER_AFTER_S = _env_float('IDS_RECOVER_AFTER_S', 5.0)
-# Family taxonomy for dashboard (informational; ban driven by gate model)
-POLICY: dict[str, str] = {
-    'Benign': 'allow',
-    'DDoS': 'ban',
-    'DoS': 'ban',
-    'Mirai': 'ban',
-    'Recon': 'ban',
-    'Web': 'alert',
-    'Spoofing': 'alert',
-    'BruteForce': 'alert',
-}
 
 # Capture source: 'live' (interface) or 'replay' (pcap file)
 SOURCE = _env_str('IDS_SOURCE', 'replay')
 PCAP_PATH = _env_str('IDS_PCAP', '')
 PCAP_REALTIME = os.environ.get('IDS_PCAP_REALTIME', '0') == '1'
-# Enforcer: 'nft' (Linux) or 'log' (dev/Mac no-op, auto-detects)
-ENFORCER = os.environ.get('IDS_ENFORCER', '').strip().lower()

@@ -6,7 +6,8 @@
 #
 # The detector runs in the HOST network namespace and sniffs the bridge interface
 # `ids-br0` (pinned below), so it sees attacker<->website traffic with real per-source
-# IPs and can write nftables on the host. Build context is the project root (..).
+# IPs. It is passive: it detects and alerts, it does not block. Build context is the
+# project root (..).
 
 networks:
   idsnet:
@@ -32,20 +33,17 @@ services:
     ports:
       - "8080:80"                # browse the protected site at http://<host>:8080
 
-  detector:                      # the product: passive sensor + out-of-band enforcement
+  detector:                      # the product: passive sensor (detect + alert, no blocking)
     build:
       context: ..
       dockerfile: deploy/detector.Dockerfile
     network_mode: host           # sees ids-br0 in the host namespace; binds host :7870
     cap_add:
-      - NET_ADMIN                # write nftables
       - NET_RAW                  # raw AF_PACKET capture
     environment:
       IDS_SOURCE: live
       IDS_IFACE: ids-br0
       IDS_PROTECTED_IPS: "172.30.0.10"
-      IDS_NEVER_BAN: "172.30.0.10,172.30.0.1"
-      IDS_ENFORCER: nft
     depends_on:
       - website                # ensures idsnet (and the ids-br0 bridge) exists first
     restart: unless-stopped

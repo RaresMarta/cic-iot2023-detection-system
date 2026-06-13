@@ -4,7 +4,7 @@ Threading model (see plan):
   * One capture thread does all packet-rate work (recv + parse + windowing) and pushes
     only completed WindowResults onto a bounded queue, dropping oldest on overflow.
   * One asyncio consumer task pulls WindowResults, runs the (sub-ms, batch-1) MLP inline,
-    applies the ban policy + enforcement, and publishes events to the SSE broker.
+    raises an alert on sustained malicious traffic, and publishes events to the SSE broker.
   * One asyncio lifecycle task emits "recovered" when an attacker goes quiet.
 All windower state stays in the capture thread, so no locks are needed.
 """
@@ -23,7 +23,6 @@ import torch
 
 
 from . import config
-from .enforcement import Enforcer, Policy, attacker_ip
 from .events import Broker
 from .producers import WindowProducer
 from .windower import WindowResult
@@ -31,15 +30,23 @@ from .windower import WindowResult
 torch.set_num_threads(1)   # the model is tiny; threading hurts more than helps
 
 
+def attacker_ip(ip_a: str, ip_b: str, protected: set[str]) -> str | None:
+    """The endpoint of a flow that is NOT the protected host. None if ambiguous."""
+    a_prot, b_prot = ip_a in protected, ip_b in protected
+    if a_prot and not b_prot:
+        return ip_b
+    if b_prot and not a_prot:
+        return ip_a
+    return None  # neither or both protected -> can't attribute the source
+
+
 class Detector:
     def __init__(self, producer: WindowProducer, gate_predictor, family_predictor,
-                 enforcer: Enforcer, broker: Broker, policy: Policy | None = None):
+                 broker: Broker):
         self.producer = producer
-        self.gate_predictor = gate_predictor       # 2-class Benign/Attack (ban trigger)
+        self.gate_predictor = gate_predictor       # 2-class Benign/Attack (alert trigger)
         self.family_predictor = family_predictor   # 8-class family (label/visual)
-        self.enforcer = enforcer
         self.broker = broker
-        self.policy = policy or Policy()
         self._q: queue.Queue = queue.Queue(maxsize=config.QUEUE_MAXSIZE)
         self._stop = threading.Event()
         self._capture_thread: threading.Thread | None = None
@@ -117,7 +124,6 @@ class Detector:
 
         atk = attacker_ip(wr.ip_a, wr.ip_b, config.PROTECTED_IPS)
         protected = wr.ip_b if atk == wr.ip_a else wr.ip_a
-        decision = self.policy.evaluate(gate_label, gate_conf, atk)
 
         malicious = gate_label != 'Benign'
         self.stats['flows_total'] += 1
@@ -145,18 +151,12 @@ class Detector:
         if malicious and atk is not None:
             state = self._active.get(atk)
             if state is None:                               # first malicious window
-                self._active[atk] = {'last_malicious': now, 'family': family, 'banned': False}
+                self._active[atk] = {'last_malicious': now, 'family': family}
                 self.broker.publish({'type': 'alert', 'ts': now, 'attacker_ip': atk,
                                      'family': family, 'confidence': gate_conf})
             else:
                 state['last_malicious'] = now
                 state['family'] = family
-
-            if decision == 'ban' and not self._active[atk]['banned']:
-                await loop.run_in_executor(None, self.enforcer.ban, atk, family)
-                self._active[atk]['banned'] = True
-                self.broker.publish({'type': 'ban', 'ts': now, 'attacker_ip': atk,
-                                     'family': family, 'ttl_s': self.enforcer.ttl})
 
     # ── lifecycle: emit "recovered" when an attacker goes quiet ────────────────
     async def _lifecycle_loop(self) -> None:
@@ -167,7 +167,6 @@ class Detector:
                 for atk in [a for a, s in self._active.items()
                             if now - s['last_malicious'] >= config.RECOVER_AFTER_S]:
                     self._active.pop(atk, None)
-                    self.policy.reset(atk)
                     self.broker.publish({'type': 'recovered', 'ts': now, 'attacker_ip': atk})
         except asyncio.CancelledError:
             pass
@@ -191,9 +190,5 @@ class Detector:
             'malicious': self.stats['malicious'],
             'by_family': dict(self.stats['by_family']),
             'dropped': self.stats['dropped'],
-            'banned_count': len(self.enforcer.blocklist()),
             'uptime_s': round(time.time() - self._started_at, 1),
         }
-
-    def blocklist(self) -> list[dict]:
-        return self.enforcer.blocklist()

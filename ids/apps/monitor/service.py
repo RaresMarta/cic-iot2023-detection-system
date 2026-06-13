@@ -1,8 +1,7 @@
 """FastAPI service for the live detector.
 
 Exposes the contract the dashboard + mock site consume:
-  GET /api/stream     SSE feed of {type: flow|alert|ban|recovered} events
-  GET /api/blocklist  current bans (in-memory, no nft shell-out)
+  GET /api/stream     SSE feed of {type: flow|alert|recovered} events
   GET /api/stats      counters
   GET /api/health     liveness + mode
 
@@ -24,7 +23,7 @@ from pydantic import BaseModel
 
 from ids.runtime.predictor import IDSPredictor  # noqa: E402
 
-from . import config, enforcement, producers  # noqa: E402
+from . import config, producers  # noqa: E402
 from .detector import Detector  # noqa: E402
 from .events import Broker  # noqa: E402
 
@@ -34,18 +33,15 @@ async def lifespan(app: FastAPI):
     gate_predictor = IDSPredictor(config.MODELS_DIR, split=config.MODEL_SPLIT, mode=config.MODEL_MODE_GATE)
     family_predictor = IDSPredictor(config.MODELS_DIR, split=config.MODEL_SPLIT, mode=config.MODEL_MODE_FAMILY)
     producer, inject_queue = producers.from_config()
-    enforcer = enforcement.from_config()
     broker = Broker()
-    detector = Detector(producer, gate_predictor, family_predictor, enforcer, broker)
+    detector = Detector(producer, gate_predictor, family_predictor, broker)
     app.state.detector = detector
     app.state.broker = broker
     app.state.inject_queue = inject_queue          # None unless simulate mode
     app.state.mode = producer.mode
     app.state.model = f'{config.MODEL_SPLIT} gate={config.MODEL_MODE_GATE} family={config.MODEL_MODE_FAMILY}'
-    app.state.enforcer_backend = enforcer.backend
     await detector.start()
-    print(f'[service] started: mode={producer.mode} model={app.state.model} '
-          f'enforcer={enforcer.backend}', flush=True)
+    print(f'[service] started: mode={producer.mode} model={app.state.model}', flush=True)
     try:
         yield
     finally:
@@ -61,18 +57,12 @@ app.add_middleware(
 @app.get('/api/health')
 def health():
     return {'status': 'ok', 'mode': getattr(app.state, 'mode', '?'),
-            'model': getattr(app.state, 'model', '?'),
-            'enforcer': getattr(app.state, 'enforcer_backend', '?')}
+            'model': getattr(app.state, 'model', '?')}
 
 
 @app.get('/api/stats')
 def stats():
     return app.state.detector.snapshot_stats()
-
-
-@app.get('/api/blocklist')
-def blocklist():
-    return {'banned': app.state.detector.blocklist()}
 
 
 class InjectRequest(BaseModel):
@@ -98,7 +88,7 @@ def inject(req: InjectRequest):
 @app.get('/api/families')
 def families():
     return {'families': ['Benign', 'DDoS', 'DoS', 'Mirai', 'Recon'],
-            'ban': ['DDoS', 'DoS', 'Mirai', 'Recon']}
+            'alert': ['DDoS', 'DoS', 'Mirai', 'Recon']}
 
 
 @app.get('/api/stream')
