@@ -1,6 +1,6 @@
 .venv/
 .claude/
-data/
+/data/
 memory/
 wandb/
 
