@@ -2,8 +2,8 @@
 # Entry point for each attacker swarm container. With `--scale attacker=N`, N copies
 # run this, each with its own distinct source IP on idsnet -> a distributed attack
 # (the Mirai-style "fan-in": many sources converging on one target). Each source is
-# real and routable within the bridge, so per-IP bans work and the dashboard shows
-# many attacker nodes being quarantined one by one.
+# real and routable within the bridge, so each is attributed and alerted individually,
+# and the dashboard shows many attacker nodes lighting up one by one.
 #
 # Pick the attack via ATTACK env (synflood|udpflood|recon|spoofed_flood). DURATION=0
 # runs until the container is stopped.

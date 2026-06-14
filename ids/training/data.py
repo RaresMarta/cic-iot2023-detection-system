@@ -23,10 +23,7 @@ def load_dataset(parquet_path=PARQUET_PATH):
     missing = [c for c in X_COLUMNS_SELECTED if c not in df.columns]
 
     if missing:
-        raise ValueError(
-            f'Parquet at {parquet_path} is missing selected feature columns: {missing}. '
-            f'Re-run ingestion (notebook ingest cells) on the full 39-column schema.'
-        )
+        raise ValueError(f'Parquet at {parquet_path} is missing {len(missing)} selected feature columns: {missing}. ')
 
     df = df.drop_nulls(subset=[Y_COLUMN])
     df = df.with_columns([

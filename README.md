@@ -26,7 +26,7 @@ Experiment tracking              → Weights & Biases
 | `ids/runtime/` | Shared inference library: packet→feature extractor, `IDSPredictor`, SHAP explainer |
 | `ids/training/` | Training orchestration, Optuna tuning, latency/throughput benchmark |
 | `ids/apps/analyzer/` | FastAPI server (`:7860`) — `POST /api/classify` for on-demand file analysis (serves the React frontend) |
-| `ids/apps/monitor/` | Live beside-path NIDS (`:7870`) — capture → window → classify → ban |
+| `ids/apps/monitor/` | Live beside-path NIDS (`:7870`) — capture → window → classify → alert |
 | `models/` | Saved scaler, label encoders, MLP state dicts per (split, granularity) |
 | `tests/` | pytest contract suite (feature / extractor parity / artifact / API / calibration) |
 | `docs/report/` | Thesis report (LaTeX) |

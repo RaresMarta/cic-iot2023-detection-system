@@ -28,7 +28,6 @@ body {
 }
 body[data-threat="elevated"] .ambient { box-shadow: inset 0 0 140px -40px var(--warn); }
 body[data-threat="engaged"]  .ambient { box-shadow: inset 0 0 180px -30px var(--danger); }
-body[data-threat="blocked"]  .ambient { box-shadow: inset 0 0 140px -40px var(--ok); }
 
 /* Guard badge */
 .guardian {
@@ -46,7 +45,6 @@ body[data-threat="blocked"]  .ambient { box-shadow: inset 0 0 140px -40px var(--
 .guardian--engaged  .guardian__dot { background: var(--danger); animation: pulse .8s infinite; }
 .guardian--elevated { border-color: var(--warn); }
 .guardian--engaged  { border-color: var(--danger); }
-.guardian--blocked  { border-color: var(--ok); }
 @keyframes pulse {
   0% { box-shadow: 0 0 0 0 currentColor; } 70% { box-shadow: 0 0 0 8px transparent; } 100% { box-shadow: 0 0 0 0 transparent; }
 }

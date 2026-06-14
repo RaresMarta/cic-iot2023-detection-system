@@ -10,13 +10,15 @@ for this isolated lab. Only the families the model reliably detects are produced
 DDoS/DoS (floods), Recon (scan), and Mirai-style distributed flood (the swarm). These
 require `hping3` and `nmap` (preinstalled in the attacker image).
 
+The detector is detect-and-alert only — it flags malicious sources, it does not block them.
+
 | Script | Family | Expected detector reaction |
 |--------|--------|----------------------------|
-| `synflood.sh`     | DoS / DDoS | high `Rate`, all-SYN → ban within ~2 windows |
-| `udpflood.sh`     | DoS / DDoS | UDP flood → ban |
-| `recon.sh`        | Recon      | port sweep → alert/ban (lower confidence) |
-| `spoofed_flood.sh`| DDoS       | `--rand-source`: bans can't keep up — the deliberate "where IP-banning fails" demo |
-| swarm (compose)   | Mirai/DDoS | many distinct source IPs each banned (fan-in) |
+| `synflood.sh`     | DoS / DDoS | high `Rate`, all-SYN → alert within ~2 windows |
+| `udpflood.sh`     | DoS / DDoS | UDP flood → alert |
+| `recon.sh`        | Recon      | port sweep → alert (lower confidence) |
+| `spoofed_flood.sh`| DDoS       | `--rand-source`: still detected, but no stable source IP to attribute (where per-source response would struggle) |
+| swarm (compose)   | Mirai/DDoS | many distinct source IPs, each raising an alert (fan-in) |
 
 Single-source demo:
 ```sh

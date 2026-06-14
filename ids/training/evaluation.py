@@ -10,20 +10,26 @@ from sklearn.metrics import (
 )
 
 
-def metrics5(y_true, y_pred) -> dict:
-    """The five aggregate metrics reported for every (model, partition) pair."""
+def metrics5(y_true, y_pred, labels=None) -> dict:
+    """The five aggregate metrics reported for every (model, partition) pair.
+
+    Pass ``labels`` (e.g. ``range(n_classes)``) so a class absent from this
+    partition still counts (as 0), keeping macro metrics comparable across
+    splits — the grouped (per_csv) split can drop a rare class from a partition.
+    """
     return dict(
         accuracy = accuracy_score(y_true, y_pred),
-        macro_f1 = f1_score(y_true, y_pred, average='macro', zero_division=0),
-        weighted_f1 = f1_score(y_true, y_pred, average='weighted', zero_division=0),
-        macro_precision = precision_score(y_true, y_pred, average='macro', zero_division=0),
-        macro_recall = recall_score(y_true, y_pred, average='macro', zero_division=0),
+        macro_f1 = f1_score(y_true, y_pred, labels=labels, average='macro', zero_division=0),
+        weighted_f1 = f1_score(y_true, y_pred, labels=labels, average='weighted', zero_division=0),
+        macro_precision = precision_score(y_true, y_pred, labels=labels, average='macro', zero_division=0),
+        macro_recall = recall_score(y_true, y_pred, labels=labels, average='macro', zero_division=0),
     )
 
 
 def report_and_confusion(y_true, y_pred, class_names: list) -> tuple[str, np.ndarray]:
-    rep = cast(str, classification_report(y_true, y_pred, target_names=class_names, zero_division=0, digits=4, output_dict=False))
-    cm = confusion_matrix(y_true, y_pred)
+    lbls = list(range(len(class_names)))  # all classes, even if absent from this partition
+    rep = cast(str, classification_report(y_true, y_pred, labels=lbls, target_names=class_names, zero_division=0, digits=4, output_dict=False))
+    cm = confusion_matrix(y_true, y_pred, labels=lbls)
 
     return rep, cm
 

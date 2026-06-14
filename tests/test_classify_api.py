@@ -24,7 +24,7 @@ def test_classify_endpoint_contract(csv_bytes):
     resp = client.post(
         '/api/classify',
         files={'file': ('capture.csv', csv_bytes, 'text/csv')},
-        data={'model_type': 'mlp', 'mode': '8', 'split': 'temporal'},
+        data={'model_type': 'mlp', 'mode': '8', 'split': 'random'},
     )
 
     assert resp.status_code == 200

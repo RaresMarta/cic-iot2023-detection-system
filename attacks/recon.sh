@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Port scan -> Recon family. A SYN sweep across many destination ports.
 # Expected: methodical probing across ports -> Recon verdict (lower confidence than
-# floods; may take more windows or stay at "alert" depending on the ban threshold).
+# floods; may take more windows to raise an alert).
 set -euo pipefail
 TARGET="${TARGET:-172.30.0.10}"
 

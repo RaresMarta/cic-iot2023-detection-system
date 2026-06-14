@@ -82,20 +82,20 @@ față de cod (`cic-iot2023-detection-system` și `ids-frontend`). Referințele
     the resulting flows are classified in near real time”, contribuția 5). Codul
     implementează: captură live AF_PACKET / replay pcap (`capture.py`), extracție de
     feature-uri pe ferestre tumbling (`windower.py`), un design cu două modele (gate
-    binar de 2 clase + clasificator de familie pe 8 clase, `detector.py:38-39`), o
-    politică de ban (prag de încredere + N ferestre malițioase consecutive + allowlist,
-    `enforcement.py:32-62`), **enforcement real prin nftables** care aruncă traficul la
-    nivel de kernel (`enforcement.py:126-165`) și un flux de evenimente SSE consumat de
-    `LiveMonitorPage` din frontend. Cap. 2 §IDS-vs-IPS chiar descrie exact acest punct
-    de mijloc („detect beside the path, respond with a firewall rule”) ca teorie — fără
-    să spună că sistemul îl implementează. Este partea cea mai impresionantă a
-    construcției și e invizibilă în capitolele de cerințe, design, tabelul de use-case
-    și testare.
+    binar de 2 clase + clasificator de familie pe 8 clase, `detector.py`), atribuirea
+    sursei atacatoare pe baza IP-urilor protejate și un flux de evenimente SSE
+    (`flow`/`alert`/`recovered`) consumat de `LiveMonitorPage` din frontend. Sistemul
+    este **detect-and-alert**: detectează și alertează, NU blochează — nu există
+    enforcement prin firewall în build-ul curent (o eventuală fază IPS out-of-band e
+    lăsată ca lucru viitor). Cap. 2 §IDS-vs-IPS descrie corect IPS-ul ca termen de
+    contrast, fără să pretindă că sistemul îl implementează. Este partea cea mai
+    impresionantă a construcției și e invizibilă în capitolele de cerințe, design,
+    tabelul de use-case și testare.
 
 11. **Tooling-ul de atac și site-ul victimă sunt nedocumentate**: `attacks/recon.sh`
     (nmap SYN scan), `synflood.sh`/`udpflood.sh` (hping3), `spoofed_flood.sh`
-    (`--rand-source`, care demonstrează intenționat limitarea ban-ului pe IP sursă — o
-    ilustrare live perfectă a argumentului despre atacuri volumetrice din cap. 2),
+    (`--rand-source`, care arată că nu există o sursă stabilă de atribuit — o ilustrare
+    live a argumentului despre atacuri volumetrice / mitigare upstream din cap. 2),
     `swarm_entrypoint.sh` (swarm multi-container cu IP-uri sursă distincte — adică o
     demonstrație reală DDoS-vs-DoS) și `mock_site/` (site-ul protejat care se abonează la
     evenimentele detectorului). Un comitet va întreba „cum ai generat atacurile pentru
@@ -223,11 +223,12 @@ față de cod (`cic-iot2023-detection-system` și `ids-frontend`). Referințele
     ce face servirea la window=10 fluxurilor de flood extrase la 100 în antrenare?” e o
     întrebare ascuțită.
 
-27. **Parametrii politicii de ban sunt neexplicați nicăieri.** Monitorul banează pe încredere
-    calibrată ≥ prag pe N ferestre consecutive (`enforcement.py:32-62`). Dacă sistemul live
-    intră în teză (punctul 10), alegerea pragului/N — și relația lui cu analiza de calibrare
-    și trade-off-ul matricei de confuzie binare — are nevoie de un paragraf; aici e exact
-    locul unde munca de temperature-scaling dă roade, iar legătura nu e trasă niciodată acum.
+27. **Legătura dintre calibrare și verdictul live.** Stratul de enforcement (politica de ban
+    prin nftables) a fost eliminat — sistemul e detect-and-alert, deci nu mai există parametri
+    de ban de explicat. Rămâne însă încrederea calibrată a gate-ului de 2 clase, afișată în UI
+    și folosită ca semnal de alertă; dacă sistemul live intră în teză (punctul 10), relația
+    dintre temperature-scaling și acest verdict afișat merită un paragraf — aici munca de
+    calibrare dă roade.
 
 28. **Detalii mai mici verificabile**: numărul de bin-uri ECE (lucrarea: 15 bin-uri de
     lățime egală) ar trebui confirmat față de `calibration.py`; afirmația „heaviest class
@@ -242,7 +243,7 @@ față de cod (`cic-iot2023-detection-system` și `ids-frontend`). Referințele
 
 Capitolele scrise 5–6 descriu o încarnare anterioară a sistemului (Gradio + CICFlowMeter +
 doar upload), în timp ce codebase-ul real a evoluat în ceva mai substanțial (extractor custom
-fidel, pipeline live captură-la-ban, SHAP, auth funcțional). Cele mai multe goluri de mai sus
+fidel, pipeline live captură-la-alertă, SHAP, auth funcțional). Cele mai multe goluri de mai sus
 se rezolvă rescriind capitolele de aplicație în jurul sistemului real — care e și sistemul mai
 defensabil — și re-rulând/raportând trei lucruri: split-ul temporal cu sortare numerică
 naturală, comparația cu split-ul random și tabelul de latență.

@@ -1,8 +1,8 @@
 """Mock customer website — the protected party (stand-in for a real client's site).
 
 It contains NO detection code. It just serves a small page and a few endpoints for
-attackers to hit. For the demo's explainability layer, the page subscribes to the
-detector's SSE feed and visualises attack_detected / ip_banned / recovered — a
+attackers to hit. For the demo's presentation layer, the page subscribes to the
+detector's SSE feed and reflects the threat lifecycle (alert / recovered) — a
 presentation layer only; a real on-prem deployment keeps the protected app unaware.
 
 Run: uvicorn mock_site.app:app --host 0.0.0.0 --port 80

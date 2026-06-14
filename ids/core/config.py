@@ -1,5 +1,6 @@
 """Configuration for CIC-IoT-2023 detection pipeline."""
 
+import json
 from pathlib import Path
 import numpy as np
 import torch
@@ -11,6 +12,9 @@ DATASET_DIRECTORY = PROJECT_ROOT / 'data' / 'CSV'
 PARQUET_PATH = PROJECT_ROOT / 'data' / 'cic_iot_2023.parquet'
 MODELS_DIR = PROJECT_ROOT / 'models'
 MODELS_DIR.mkdir(exist_ok=True)
+# Single source of truth for tuned model hyperparameters, shared by training and
+# serving. Written only by ``ids.training.tune`` (see load_hparams below).
+HPARAMS_PATH = PROJECT_ROOT / 'hparams.json'
 
 # Data
 MAX_ROWS_PER_CLASS = 200_000
@@ -65,7 +69,7 @@ N_FEATURES_SELECTED = len(X_COLUMNS_SELECTED)  # 25
 
 # Tasks & splits
 MODES_TO_RUN = ['2', '8']
-SPLITS_TO_RUN = ['random', 'per_csv']
+SPLITS_TO_RUN = ['random']  # random/stratified only; temporal & per_csv dropped (one capture/session per attack folder, no session/time metadata)
 
 # Training
 BATCH_SIZE = 4096
@@ -85,3 +89,21 @@ torch.cuda.manual_seed_all(SEED)
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
 np.random.seed(SEED)
+
+
+def load_hparams(model: str, mode: str) -> dict:
+    """Read the tuned hyperparameters for a ``(model, mode)`` cell from hparams.json.
+
+    hparams.json is the single source of truth shared by training and serving;
+    ``ids.training.tune`` is its only writer. Raises a clear error (pointing at the
+    command that generates the cell) if the file or the requested cell is missing."""
+    cmd = f'python -m ids.training.tune --model {model} --mode {mode} --split random'
+    if not HPARAMS_PATH.exists():
+        raise FileNotFoundError(f'{HPARAMS_PATH} not found. Generate it with `{cmd}`.')
+    data = json.loads(HPARAMS_PATH.read_text())
+    try:
+        return data[model][str(mode)]
+    except KeyError:
+        raise KeyError(
+            f'No hyperparameters for model={model!r} mode={mode!r} in {HPARAMS_PATH}. '
+            f'Generate them with `{cmd}`.')

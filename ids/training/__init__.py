@@ -32,7 +32,7 @@ def _softmax(z: np.ndarray) -> np.ndarray:
     return e / e.sum(axis=1, keepdims=True)
 
 
-def run_training(splits=('random', 'per_csv'), modes=('2', '8'),
+def run_training(splits=('random',), modes=('2', '8'),
                  wandb_enabled: bool = False, parquet_path=None) -> dict:
     """Train MLP + Random Forest for every (split, mode), persist everything.
 
@@ -87,14 +87,14 @@ def run_training(splits=('random', 'per_csv'), modes=('2', '8'),
             # ---- MLP ----
             print('  [MLP] training...')
             model, history = train_mlp(X_train, y_tr, X_val, y_va, K, cw,
-                                       artifacts.weights_path(split, mode))
+                                       artifacts.weights_path(split, mode), mode)
             models_mem[(split, mode, 'mlp')] = model
             evals = {part: evaluate(model, _loader(Xs, ys, shuffle=False), class_names, device)
                      for part, Xs, ys in (('test', X_test, y_te),
                                           ('val', X_val, y_va),
                                           ('train', X_train, y_tr))}
             for part, ev in evals.items():
-                RESULTS[(f'mode{mode}', 'mlp', part)] = metrics5(ev['y_true'], ev['y_pred'])
+                RESULTS[(f'mode{mode}', 'mlp', part)] = metrics5(ev['y_true'], ev['y_pred'], labels=list(range(K)))
             RESULTS[f'mlp_report_{mode}'] = evals['test']['report']
             RESULTS[f'mlp_cm_{mode}'] = evals['test']['confusion_matrix']
             artifacts.save_run_artifacts(history, evals['test']['y_true'],
@@ -112,12 +112,12 @@ def run_training(splits=('random', 'per_csv'), modes=('2', '8'),
 
             # ---- Random Forest ----
             print('  [RF] training...')
-            rf = train_rf(X_train, y_tr)
+            rf = train_rf(X_train, y_tr, mode)
             models_mem[(split, mode, 'rf')] = rf
             artifacts.save_tree_model(rf, split, mode, 'rf')
             for part, Xs, ys in (('test', X_test, y_te), ('val', X_val, y_va),
                                  ('train', X_train, y_tr)):
-                RESULTS[(f'mode{mode}', 'rf', part)] = metrics5(ys, rf.predict(Xs))
+                RESULTS[(f'mode{mode}', 'rf', part)] = metrics5(ys, rf.predict(Xs), labels=list(range(K)))
             rf_te_pred = rf.predict(X_test)
             rep, _ = report_and_confusion(y_te, rf_te_pred, class_names)
             RESULTS[f'rf_report_{mode}'] = rep

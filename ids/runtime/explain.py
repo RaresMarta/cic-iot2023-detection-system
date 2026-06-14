@@ -78,9 +78,9 @@ class FlowExplainer:
 if __name__ == '__main__':
     from ids.core.config import MODELS_DIR
     from ids.data.sampler import FlowSampler
-    from ids.runtime.predictor import IDSPredictor
+    from ids.runtime.predictor import MLPClassifier
 
-    predictor = IDSPredictor(MODELS_DIR, split='temporal', mode='8')
+    predictor = MLPClassifier(MODELS_DIR, split='random', mode='8')
     sampler = FlowSampler()
     explainer = FlowExplainer(predictor, sampler)
 

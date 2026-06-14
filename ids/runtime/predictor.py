@@ -40,9 +40,7 @@ class _BasePredictor:
             scaler = joblib.load(self.models_dir / f'scaler_{split}.joblib')
             self.preprocessor = Preprocessor(self.x_columns, self.log_columns)
             self.preprocessor.scaler = scaler
-            # The legacy artifact carries no fitted medians; fill residual nulls with
-            # 0 in the post-log1p space, matching the original serving path so the
-            # backward-compatible fallback is actually usable (not just constructed).
+
             self.preprocessor.medians = np.zeros(len(self.x_columns), dtype=np.float32)
 
         self.encoder = joblib.load(self.models_dir / f'label_encoder_{split}_{mode}class.joblib')
@@ -84,9 +82,14 @@ class MLPClassifier(_BasePredictor):
         self.device = torch.device(device)
         n_classes = len(self.encoder.classes_)
 
-        self.model = IDSModel(len(self.x_columns), n_classes).to(self.device)
+        # Build the model to match the checkpoint's architecture rather than the
+        # constructor default, so serving is immune to train-side arch changes
+        # (e.g. tuned hidden_sizes) without needing to read hparams.json.
         state = torch.load(self.models_dir / f'ids_dnn_{split}_{mode}class.pth',
                            map_location=self.device, weights_only=True)
+        hidden_sizes = IDSModel.infer_hidden_sizes(state)
+        self.model = IDSModel(len(self.x_columns), n_classes,
+                              hidden_sizes=hidden_sizes).to(self.device)
         self.model.load_state_dict(state)
         self.model.eval()
 

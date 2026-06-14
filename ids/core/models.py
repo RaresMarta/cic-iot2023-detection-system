@@ -59,6 +59,19 @@ class IDSModel(nn.Module):
     def forward(self, x):
         return self.net(x)
 
+    @staticmethod
+    def infer_hidden_sizes(state_dict) -> list:
+        """Reconstruct the hidden-layer widths from a saved ``state_dict`` so a model
+        can be rebuilt to match a checkpoint regardless of the constructor default.
+
+        Only ``Linear`` layers carry 2-D ``.weight`` tensors (BatchNorm weights are
+        1-D, dropout/activation carry no params), and a state_dict preserves module
+        order — so the Linear output dims, in order, are the layer widths. The last
+        one is the classifier head (``n_classes``), so it is dropped."""
+        linear_out = [v.shape[0] for k, v in state_dict.items()
+                      if k.endswith('.weight') and v.ndim == 2]
+        return linear_out[:-1]
+
 
 def train_model(model: nn.Module, train_loader, val_loader,
                 class_weights: torch.Tensor, n_epochs: int, patience: int,
@@ -166,15 +179,16 @@ def evaluate(model: nn.Module, test_loader, class_names: list,
             labels.append(yb.numpy())
     y_pred = np.concatenate(preds)
     y_true = np.concatenate(labels)
+    lbls = list(range(len(class_names)))  # all classes, even if absent from this partition
 
     return {
         'accuracy': accuracy_score(y_true, y_pred),
-        'macro_f1': f1_score(y_true, y_pred, average='macro', zero_division=0),
-        'weighted_f1': f1_score(y_true, y_pred, average='weighted', zero_division=0),
-        'macro_precision': precision_score(y_true, y_pred, average='macro', zero_division=0),
-        'macro_recall': recall_score(y_true, y_pred, average='macro', zero_division=0),
-        'report': classification_report(y_true, y_pred, target_names=class_names, zero_division=0, digits=4),
-        'confusion_matrix': confusion_matrix(y_true, y_pred),
+        'macro_f1': f1_score(y_true, y_pred, labels=lbls, average='macro', zero_division=0),
+        'weighted_f1': f1_score(y_true, y_pred, labels=lbls, average='weighted', zero_division=0),
+        'macro_precision': precision_score(y_true, y_pred, labels=lbls, average='macro', zero_division=0),
+        'macro_recall': recall_score(y_true, y_pred, labels=lbls, average='macro', zero_division=0),
+        'report': classification_report(y_true, y_pred, labels=lbls, target_names=class_names, zero_division=0, digits=4),
+        'confusion_matrix': confusion_matrix(y_true, y_pred, labels=lbls),
         'y_true': y_true,
         'y_pred': y_pred,
     }

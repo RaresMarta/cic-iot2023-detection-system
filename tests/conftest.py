@@ -21,7 +21,7 @@ from ids.runtime.validate_extractor import _synth_syn_flood, _write_pcap  # noqa
 
 def _have_models() -> bool:
     return (MODELS_DIR / 'feature_columns.joblib').exists() and \
-           (MODELS_DIR / 'ids_dnn_temporal_8class.pth').exists()
+           (MODELS_DIR / 'ids_dnn_random_8class.pth').exists()
 
 
 def pytest_collection_modifyitems(config, items):
@@ -42,9 +42,9 @@ def models_dir() -> Path:
 
 @pytest.fixture(scope='session')
 def predictor():
-    """The 8-class temporal predictor — the model the upload UI uses."""
-    from ids.runtime.predictor import IDSPredictor
-    return IDSPredictor(MODELS_DIR, split='temporal', mode='8')
+    """The 8-class random-split predictor — the model the upload UI uses."""
+    from ids.runtime.predictor import MLPClassifier
+    return MLPClassifier(MODELS_DIR, split='random', mode='8')
 
 
 @pytest.fixture

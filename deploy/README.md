@@ -1,14 +1,11 @@
 # Deployment — live IDS demo
 
-> **Scope note (current build):** the system runs as a **passive NIDS — it detects and
-> alerts, it does not block.** The IP-enforcement layer (nftables banning) has been
-> removed; the run/verify steps below that mention bans, nftables, or the blocklist are
-> retained as a reference for a future IPS iteration and do **not** reflect the current
-> build.
+The system runs as a **passive NIDS — it detects and alerts, it does not block.** There is
+no firewall/nftables interaction and no IP banning in the current build. (Out-of-band IP
+enforcement is deferred to a possible future IPS iteration.)
 
-Three components on one Linux host, plus an on-demand attacker swarm. The detector is
-a passive, co-located sensor that flags malicious sources (a flow-based NIDS; the
-out-of-band firewall response is out of scope in the current build).
+Three components on one Linux host, plus an on-demand attacker swarm. The detector is a
+passive, co-located sensor that flags malicious sources from flow statistics.
 
 ## Topology
 
@@ -18,14 +15,14 @@ out-of-band firewall response is out of scope in the current build).
   (172.30.0.x)   ├──► website 172.30.0.10  (mock customer site, :8080 on host)
   browser ───────┘                ▲
                                   │ traffic bridged through ids-br0
-        detector (HOST netns) ────┘  sniffs ids-br0, bans via nftables on the host
-        binds host :7870 (SSE /api/stream, /api/blocklist, /api/stats)
+        detector (HOST netns) ────┘  sniffs ids-br0 (passive observe only)
+        binds host :7870 (SSE /api/stream, /api/stats, /api/health)
 ```
 
-The detector must be host-networked so it (a) sees container traffic on `ids-br0` with
-real per-source IPs and (b) can write the host's nftables. The website and attackers are
-on the bridge so each attacker replica has its own routable `172.30.0.x` (enables the
-distributed / Mirai "fan-in" and real per-IP bans).
+The detector is host-networked so it sees container traffic on `ids-br0` with real
+per-source IPs. The website and attackers are on the bridge so each attacker replica has
+its own routable `172.30.0.x` (enables the distributed / Mirai "fan-in" view). The detector
+only observes — it never sits in the forwarding path and never modifies host networking.
 
 ## Run
 
@@ -51,28 +48,27 @@ docker compose -f deploy/docker-compose.yml --profile attack run --rm \
 ATTACK=synflood docker compose -f deploy/docker-compose.yml --profile attack \
   up --scale attacker=30 attacker
 
-# the "IP-banning fails" contrast:
+# random-source flood — still detected, but no stable source IP to attribute
+# (illustrates why per-source response is hard; the detector classifies it regardless):
 ATTACK=spoofed_flood docker compose -f deploy/docker-compose.yml --profile attack up attacker
 ```
 ATTACK ∈ {synflood, udpflood, recon, spoofed_flood}.
 
 ## Verify (on the Linux host)
 
-1. `curl http://<HOST_IP>:7870/api/health` → `{mode: live, enforcer: nft}`.
-2. Start a `synflood`. On the detector you should see `flow` events classified
-   DoS/DDoS, then an `alert`, then a `ban` for the attacker's IP.
-3. `sudo nft list set inet ids banned` → the attacker IP is present (with a timeout).
-4. From the attacker container, `curl http://172.30.0.10` now times out (dropped).
-5. After `IDS_BAN_TTL_S` (120s) the element expires → traffic flows again.
-6. Scale the swarm to 30 → `curl http://<HOST_IP>:7870/api/blocklist` shows ~30 IPs,
-   each visibly quarantined on the dashboard's fan-in view.
-7. Confirm rule ordering: `sudo nft list ruleset` — the `inet ids` `drop_banned`
-   chain (priority -150) runs before Docker's own forward rules.
+1. `curl http://<HOST_IP>:7870/api/health` → `{status: ok, mode: live, model: ...}`.
+2. Start a `synflood`. On `/api/stream` you should see `flow` events classified DoS/DDoS,
+   then an `alert` for the attacker's IP, then a `recovered` once it goes quiet.
+3. `curl http://<HOST_IP>:7870/api/stats` → `malicious` and the `by_family` histogram climb
+   during the attack.
+4. Scale the swarm to 30 → many distinct source IPs each raise an `alert`, shown as the
+   fan-in view on the dashboard. The protected site stays reachable throughout (the detector
+   never touches traffic): `curl -s -o/dev/null -w '%{http_code}\n' http://<HOST_IP>:8080/health`.
 
 ## Full fidelity locally on macOS — Colima (NOT Docker Desktop)
 
-Docker Desktop runs containers in a hidden LinuxKit VM that blocks the detector's
-host-net raw capture + nftables. Colima gives a real Linux kernel you control:
+Docker Desktop runs containers in a hidden LinuxKit VM that blocks the detector's host-net
+raw capture. Colima gives a real Linux kernel for live sniffing:
 
 ```sh
 brew install colima docker docker-compose
@@ -81,26 +77,17 @@ docker compose -f deploy/docker-compose.yml up -d --build website detector
 # drive a continuous attack (managed bg service, distinct source IP on idsnet):
 DURATION=0 ATTACK=synflood docker compose -f deploy/docker-compose.yml --profile attack \
   up -d --scale attacker=1 attacker
-curl -s localhost:7870/api/blocklist        # attacker IP appears once banned
-# prove cut-off from the banned attacker (100% loss) vs site still up:
-docker compose -f deploy/docker-compose.yml exec attacker hping3 -S -c5 -p80 172.30.0.10
+curl -s localhost:7870/api/stats             # malicious / by_family climb during the flood
+# the site stays up for everyone (the detector is out of the path):
 curl -s -o/dev/null -w '%{http_code}\n' localhost:8080/health
 ```
-Verified end-to-end this way: real capture → 2-class gate (Attack) → nft ban → 100%
-packet loss for the attacker, site unaffected for everyone else, TTL auto-expiry.
-
-## Two firewall drop points (why)
-
-Same-bridge container↔container traffic is L2-bridged and skips the IP `forward` hook
-unless `br_netfilter` is loaded — so the `inet/forward` rule alone won't drop a
-same-host attacker. The detector therefore also installs a **`bridge` family** drop
-rule (`ether type ip ip saddr @banned drop`) which sees bridged frames. The `inet`
-rule still covers routed/external attackers on a real VPS. No host sysctl needed.
+Verified end-to-end this way: real capture → 2-class gate (Attack) → alert on the SSE feed,
+with the protected site unaffected.
 
 ## Offline (macOS, no Docker / no root)
 
-The detector pipeline (capture → window → classify → decide → publish) is fully
-exercisable offline, which is how it was developed and validated:
+The detector pipeline (capture → window → classify → decide → publish) is fully exercisable
+offline, which is how it was developed and validated:
 
 ```sh
 .venv/bin/python -m ids.apps.monitor simulate          # real sampled CIC-IoT-2023 flows
@@ -108,4 +95,3 @@ exercisable offline, which is how it was developed and validated:
 .venv/bin/python -m ids.apps.monitor replay path/to.pcap --realtime
 .venv/bin/python -m ids.apps.monitor.synth ./pcaps     # generate synthetic test pcaps
 ```
-In offline/dev the enforcer auto-falls back to a logging no-op (no nftables needed).

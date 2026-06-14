@@ -72,6 +72,6 @@ These are environment-specific (which interface, which target, what privilege le
 
 ## Files
 
-- `inference.py` — model + scaler + encoder loader; `IDSPredictor` class
+- `inference.py` — model + scaler + encoder loader; `MLPClassifier` class
 - `cicflowmeter_runner.py` — subprocess wrapper, auto-detects Java or Python backend
 - `app.py` — Gradio UI

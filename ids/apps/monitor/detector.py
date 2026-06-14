@@ -1,4 +1,4 @@
-"""Detector orchestrator: capture -> window -> classify -> decide -> enforce -> publish.
+"""Detector orchestrator: capture -> window -> classify -> decide -> publish.
 
 Threading model (see plan):
   * One capture thread does all packet-rate work (recv + parse + windowing) and pushes
@@ -54,7 +54,7 @@ class Detector:
         self._tasks: list[asyncio.Task] = []
         self._flow_id = 0
         self._started_at = time.time()
-        # active attackers: ip -> {last_malicious, family, banned}
+        # active attackers: ip -> {last_malicious, family}
         self._active: dict[str, dict] = {}
         self.stats = {
             'flows_total': 0,
@@ -100,7 +100,7 @@ class Detector:
             except queue.Full:
                 pass
 
-    # ── async consumer (classify + decide + enforce + publish) ─────────────────
+    # ── async consumer (classify + decide + publish) ───────────────────────────
     async def _consume(self) -> None:
         loop = asyncio.get_running_loop()
         while not self._stop.is_set():

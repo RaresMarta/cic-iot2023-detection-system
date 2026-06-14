@@ -1,0 +1,67 @@
+// RT-IDS for CIC-IoT-2023 — methodology / training pipeline diagram
+// Figure style adapted from Alahmari & Aleisa (2025), J. Computer Science 21(7):1688-1704.
+// Render:
+//   dot -Tpdf methodology.dot -o methodology.pdf      (vector, for LaTeX \includegraphics)
+//   dot -Tsvg methodology.dot -o methodology.svg
+//   dot -Tpng -Gdpi=170 methodology.dot -o methodology.png
+digraph methodology {
+  rankdir=TB;
+  graph [fontname="Helvetica", splines=ortho, nodesep=0.30, ranksep=0.34, bgcolor="white", pad=0.25];
+  node  [fontname="Helvetica", fontsize=11, shape=box, style="filled,rounded",
+         color="#2E8B57", penwidth=1.3, margin="0.16,0.07"];
+  edge  [fontname="Helvetica", fontsize=9, color="#555555", arrowsize=0.8];
+
+  // ---- source ----
+  dataset [label="CIC-IoT-2023 Dataset\n39 features · 34 attacks + Benign", shape=cylinder,
+           fillcolor="#BBDEFB", color="#1F6FB2"];
+
+  // ---- cleaning + sampling merged, then preprocessing ----
+  clean [label="Cleaning · Exact Deduplication · Per-Class Sampling\n(unique on all features · seeded · 200k cap)", fillcolor="#ABEBC6"];
+  prep  [label="Feature Preprocessing\nlog1p · RobustScaler · LabelEncoder", fillcolor="#ABEBC6"];
+  split [label="Split Strategy   Random · Per-CSV (GroupShuffleSplit)", shape=trapezium,
+         fillcolor="#7DCEA0", color="#1E8449"];
+
+  // ---- partitions ----
+  train [label="Training Set\n70%",   fillcolor="#D5F5E3"];
+  val   [label="Validation Set\n15%", fillcolor="#D5F5E3"];
+  test  [label="Test Set\n15%",       fillcolor="#D5F5E3"];
+
+  // ---- training cluster (imbalance handling + the two models) ----
+  subgraph cluster_train {
+    label="Model Training & Selection"; fontname="Helvetica"; fontsize=11; labelloc="t";
+    style="dashed,rounded"; color="#8E44AD"; penwidth=1.5; bgcolor="#FBF4FF";
+    cw     [label="Class-Weighted Cross-Entropy\n(no SMOTE / no synthetic data)", shape=trapezium,
+            fillcolor="#FCF3CF", color="#B7950B"];
+    mlp    [label="PyTorch MLP\n25→128→64→n · BN + Dropout", fillcolor="#FAD7A0", color="#CA6F1E"];
+    rf     [label="Random Forest", fillcolor="#FAD7A0", color="#CA6F1E"];
+    models [label="Trained Models", fillcolor="#F5CBA7", color="#CA6F1E"];
+    cw -> mlp; cw -> rf; mlp -> models; rf -> models;
+    {rank=same; mlp; rf;}
+  }
+
+  // ---- evaluation (+benchmark folded in) ----
+  eval [label="Evaluation & Benchmark\n2-/8-/34-class · macro-F1 · confusion\nlatency p50/p95/p99 @ batch 1–1024",
+        shape=diamond, fillcolor="#F9E79F", color="#B7950B", margin="0.05,0.0"];
+
+  // ---- classification output (2 families + ellipsis, like the reference) ----
+  benign [label="Benign", fillcolor="#F5B7B1", color="#A93226"];
+  attack [label="Attack", fillcolor="#F1948A", color="#A93226"];
+  ddos [label="DDoS", fillcolor="#FADBD8", color="#A93226"];
+  dos  [label="DoS",  fillcolor="#FADBD8", color="#A93226"];
+  more [label="…  (8 families)", shape=plaintext, style="", fontsize=12];
+
+  // ---- flow ----
+  dataset -> clean -> prep -> split;
+  split -> train; split -> val; split -> test;
+  train -> cw;
+  val  -> models [style=dashed];
+  models -> eval;
+  test   -> eval;
+  models -> benign [style=dashed];
+  models -> attack [style=dashed];
+  attack -> ddos; attack -> dos; attack -> more;
+
+  {rank=same; train; val; test;}
+  {rank=same; benign; attack;}
+  {rank=same; ddos; dos; more;}
+}

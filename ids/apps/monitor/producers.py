@@ -7,9 +7,9 @@ The detector classifies WindowResults and doesn't care how they are produced:
   SampledWindowProducer — offline-demo path: real CIC-IoT-2023 flows sampled from the
                           parquet (FlowSampler), wrapped as WindowResults with synthetic
                           endpoints, with an inject queue for on-demand attack bursts.
-                          Lets the full classify -> decide -> enforce -> publish path be
+                          Lets the full classify -> decide -> publish path be
                           demoed on macOS with in-distribution traffic (so DDoS/DoS/Mirai/
-                          Recon actually classify correctly and trigger bans).
+                          Recon actually classify correctly and raise alerts).
 
 Both run in the detector's capture thread via run(emit, stop).
 """
@@ -87,7 +87,7 @@ class SampledWindowProducer(WindowProducer):
         self.burst_interval = burst_interval
         self._rng = random.Random(1234)
         # Stable source IP per attack family, so an injected burst comes from one
-        # attacker and consecutive malicious windows accumulate into a ban
+        # attacker and consecutive malicious windows sustain that source's alert
         # (mirrors a real single-source attack). Assigned lazily on first use.
         self._attacker_ip: dict[str, str] = {}
 

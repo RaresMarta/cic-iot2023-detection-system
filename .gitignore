@@ -31,5 +31,12 @@ models_backup_39feat/
 # Upload bundles (data/code shipped to Colab/Kaggle for training)
 *.zip
 
+# Trained model artifacts — large (RF forests up to ~1.4 GB) and regenerable by
+# `python -m ids.training`; kept out of git and delivered separately.
+/models/
+
+# Python packaging build artifacts
+*.egg-info/
+
 # macOS
 **/.DS_Store

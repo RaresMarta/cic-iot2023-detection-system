@@ -22,7 +22,7 @@ import dpkt
 
 from ids.core.config import MODELS_DIR
 from ids.runtime.extractor import extract_features
-from ids.runtime.predictor import IDSPredictor
+from ids.runtime.predictor import MLPClassifier
 
 
 def _frame(src, dst, sport, dport, proto='tcp', flags=0, ttl=64, payload=b'') -> bytes:
@@ -79,7 +79,7 @@ def _classify(predictor, df, scenario):
 
 
 def main():
-    predictor = IDSPredictor(MODELS_DIR, split='temporal', mode='8')
+    predictor = MLPClassifier(MODELS_DIR, split='random', mode='8')
 
     if len(sys.argv) > 1:
         path = sys.argv[1]

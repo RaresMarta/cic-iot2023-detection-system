@@ -36,8 +36,8 @@ def _env_set(name: str, default: set[str]) -> set[str]:
     return {p.strip() for p in raw.split(',') if p.strip()}
 
 
-# Model: gate (2-class, ban trigger) + family (8-class, triage label) on 25 features
-MODEL_SPLIT = _env_str('IDS_SPLIT', 'temporal')
+# Model: gate (2-class, alert trigger) + family (8-class, triage label) on 25 features
+MODEL_SPLIT = _env_str('IDS_SPLIT', 'random')
 MODEL_MODE_GATE = _env_str('IDS_MODE_GATE', '2')
 MODEL_MODE_FAMILY = _env_str('IDS_MODE_FAMILY', '8')
 

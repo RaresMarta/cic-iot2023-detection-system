@@ -1,7 +1,8 @@
 """Model training: MLP (PyTorch) and the Random Forest tree baseline.
 
-Hyperparameters are fixed to the values selected by the Optuna search and used
-for every reported result; see the thesis methodology chapter.
+Hyperparameters are read per ``(model, mode)`` from hparams.json (the single
+source of truth, written by ``ids.training.tune``) — never hardcoded here; see
+the thesis methodology chapter.
 """
 from __future__ import annotations
 
@@ -11,7 +12,7 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.utils.class_weight import compute_class_weight
 from torch.utils.data import DataLoader
 
-from ids.core.config import BATCH_SIZE, N_EPOCHS, PATIENCE, LR, SEED
+from ids.core.config import BATCH_SIZE, N_EPOCHS, PATIENCE, SEED, load_hparams
 from ids.core.models import IDSDataset, IDSModel, train_model, device
 
 
@@ -26,22 +27,27 @@ def balanced_class_weights(y_tr: np.ndarray, n_classes: int) -> np.ndarray:
     return cw
 
 
-def _loader(X: np.ndarray, y: np.ndarray, shuffle: bool) -> DataLoader:
+def _loader(X: np.ndarray, y: np.ndarray, shuffle: bool,
+            batch_size: int = BATCH_SIZE) -> DataLoader:
     return DataLoader(IDSDataset(torch.tensor(X), torch.tensor(y)),
-                      batch_size=BATCH_SIZE, shuffle=shuffle, num_workers=0)
+                      batch_size=batch_size, shuffle=shuffle, num_workers=0)
 
 
 def train_mlp(X_train, y_tr, X_val, y_va, n_classes: int,
-              class_weights: np.ndarray, checkpoint_path):
-    """Train the [128, 64] MLP with class-weighted CE; returns (model, history)."""
-    tr_loader = _loader(X_train, y_tr, shuffle=True)
-    va_loader = _loader(X_val, y_va, shuffle=False)
+              class_weights: np.ndarray, checkpoint_path, mode):
+    """Train the MLP with class-weighted CE. The architecture and optimizer
+    hyperparameters for this ``mode`` are read from hparams.json (the single
+    source of truth written by ``ids.training.tune``); returns (model, history)."""
+    hp = load_hparams('mlp', mode)
+    tr_loader = _loader(X_train, y_tr, shuffle=True, batch_size=hp['batch_size'])
+    va_loader = _loader(X_val, y_va, shuffle=False, batch_size=hp['batch_size'])
     model = IDSModel(X_train.shape[1], n_classes,
-                     hidden_sizes=[128, 64], dropout=0.3, activation='relu').to(device)
+                     hidden_sizes=hp['hidden'], dropout=hp['dropout'],
+                     activation=hp['activation']).to(device)
     model, history = train_model(model, tr_loader, va_loader,
-                                 torch.tensor(class_weights), N_EPOCHS, PATIENCE, LR,
+                                 torch.tensor(class_weights), N_EPOCHS, PATIENCE, hp['lr'],
                                  device, checkpoint_path=checkpoint_path,
-                                 optimizer_name='adam')
+                                 optimizer_name=hp['optimizer'])
 
     return model, history
 
@@ -58,12 +64,17 @@ def mlp_logits(model, X: np.ndarray, batch_size: int = BATCH_SIZE) -> np.ndarray
     return np.concatenate(out)
 
 
-def train_rf(X_train, y_tr, seed: int = SEED) -> RandomForestClassifier:
-    """Random Forest with hyperparameters from the Optuna search (run_hpo_rf,
-    temporal/8-class, val macro-F1 0.670); see the thesis methodology chapter."""
-    rf = RandomForestClassifier(n_estimators=450, max_depth=33,
-                                min_samples_split=7, min_samples_leaf=6,
-                                max_features=0.5, class_weight='balanced',
+def train_rf(X_train, y_tr, mode, seed: int = SEED) -> RandomForestClassifier:
+    """Random Forest; hyperparameters for this ``mode`` are read from hparams.json
+    (written by ``ids.training.tune``). ``class_weight='balanced'`` is held fixed to
+    match the project's class-weighted-only imbalance decision. max_depth is capped
+    at save time (see ``tune.RF_MAX_DEPTH_CAP``) to keep the serialized forest
+    tractable --- the searched depth ~33 produces a >1 GB model on full train."""
+    hp = load_hparams('rf', mode)
+    rf = RandomForestClassifier(n_estimators=hp['n_estimators'], max_depth=hp['max_depth'],
+                                min_samples_split=hp['min_samples_split'],
+                                min_samples_leaf=hp['min_samples_leaf'],
+                                max_features=hp['max_features'], class_weight='balanced',
                                 n_jobs=-1, random_state=seed)
     rf.fit(X_train, y_tr)
 

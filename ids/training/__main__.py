@@ -16,10 +16,10 @@ def main() -> None:
         prog='python -m training',
         description='Retrain MLP + RF and regenerate all artifacts, '
                     'the metrics cache, calibration, and the paper numbers.')
-    p.add_argument('--splits', nargs='+', default=['random', 'per_csv'],
+    p.add_argument('--splits', nargs='+', default=['random'],
                    choices=['temporal', 'per_csv', 'random'],
                    help='splits to run (first one is the headline: its calibration '
-                        'artifact is the one served)')
+                        'artifact is the one served); default random-only')
     p.add_argument('--modes', nargs='+', default=['2', '8'],
                    choices=['2', '8', '34'], help='classification granularities')
     p.add_argument('--wandb', action='store_true',

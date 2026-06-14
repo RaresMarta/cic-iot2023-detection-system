@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # UDP flood -> DoS/DDoS family.
-# Expected: high Rate, UDP fraction ~1 -> DoS/DDoS verdict -> ban.
+# Expected: high Rate, UDP fraction ~1 -> DoS/DDoS verdict -> alert.
 set -euo pipefail
 TARGET="${TARGET:-172.30.0.10}"
 PORT="${PORT:-53}"

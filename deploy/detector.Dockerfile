@@ -8,7 +8,7 @@ WORKDIR /app
 RUN pip install --no-cache-dir \
         "torch==2.*" --index-url https://download.pytorch.org/whl/cpu \
     && pip install --no-cache-dir \
-        dpkt fastapi "uvicorn[standard]" polars joblib numpy scikit-learn
+        dpkt fastapi "uvicorn[standard]" polars joblib numpy scikit-learn shap
 
 # Project code + trained artefacts. The monitor needs the whole `ids` package
 # (it reuses ids.runtime / ids.data / ids.core).

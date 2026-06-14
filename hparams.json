@@ -1,0 +1,45 @@
+{
+  "mlp": {
+    "2": {
+      "activation": "relu",
+      "batch_size": 2048,
+      "dropout": 0.13094197549155473,
+      "hidden": [
+        512,
+        192,
+        512
+      ],
+      "lr": 0.0016357724692722753,
+      "optimizer": "adamw"
+    },
+    "8": {
+      "activation": "leakyrelu",
+      "batch_size": 4096,
+      "dropout": 0.10345470128734474,
+      "hidden": [
+        352,
+        256,
+        320,
+        64
+      ],
+      "lr": 0.009495950993398283,
+      "optimizer": "adamw"
+    }
+  },
+  "rf": {
+    "2": {
+      "max_depth": 25,
+      "max_features": 0.7,
+      "min_samples_leaf": 3,
+      "min_samples_split": 7,
+      "n_estimators": 300
+    },
+    "8": {
+      "max_depth": 25,
+      "max_features": 0.7,
+      "min_samples_leaf": 4,
+      "min_samples_split": 6,
+      "n_estimators": 450
+    }
+  }
+}

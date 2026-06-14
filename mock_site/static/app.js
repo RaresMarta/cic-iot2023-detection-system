@@ -8,18 +8,12 @@
   const url = (window.DETECTOR_URL || 'http://localhost:7870') + '/api/stream';
 
   // Minimal status only — no attack-family detail (that lives in the IDS dashboard).
-  let recoverTimer = null;
-
+  // The IDS is detect-and-alert: it never blocks, so there is no "blocked" state here.
   function setThreat(level, state, detail) {
     body.dataset.threat = level;
     badge.className = 'guardian guardian--' + level;
     stateEl.textContent = state;
     detailEl.textContent = detail;
-  }
-
-  function scheduleCalm(delay) {
-    clearTimeout(recoverTimer);
-    recoverTimer = setTimeout(() => setThreat('calm', 'Protected', 'traffic nominal'), delay);
   }
 
   function onEvent(evt) {
@@ -28,13 +22,10 @@
         setThreat('elevated', 'Threat detected', 'analysing traffic');
         break;
       case 'flow':
-        if (evt.gate === 'block' && body.dataset.threat !== 'blocked') {
+        // gate === 'block' is the 2-class verdict (malicious), not an enforcement action.
+        if (evt.gate === 'block') {
           setThreat('engaged', 'Under attack', 'from ' + evt.src);
         }
-        break;
-      case 'ban':
-        setThreat('blocked', 'Source blocked', evt.attacker_ip);
-        scheduleCalm(8000);
         break;
       case 'recovered':
         setThreat('calm', 'Protected', 'recovered');
