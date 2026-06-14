@@ -161,9 +161,9 @@ where the loss is averaged over the $N$ training samples and minimised by gradie
 \subsubsection{Feature Set}
 \label{subsec:features}
 
-\par The original CICIoT2023 paper describes a 46-feature representation produced by the DPKT-based extractor. The features cover flow timing (duration, time-to-live, inter-arrival time), packet rates, header and protocol information, binary TCP-flag indicators and flag counts, binary protocol indicators (HTTP, HTTPS, DNS, TCP, UDP, and others), packet-length statistics, and aggregate statistics computed over the combined incoming and outgoing packets of a window.
+\par The publicly available CSV release distributed by the Canadian Institute for Cybersecurity provides 39 features per flow, used for all experiments and the live demonstration in this thesis. The features cover flow timing (duration, time-to-live, inter-arrival time), packet rates, header and protocol information, binary TCP-flag indicators and flag counts, binary protocol indicators (HTTP, HTTPS, DNS, TCP, UDP, and others), packet-length statistics, and aggregate statistics computed over the combined incoming and outgoing packets of a window.
 
-\par At the time of writing, the publicly available CSV release distributed by the Canadian Institute for Cybersecurity contains a \textbf{39-feature subset} of the 46 features described in the paper. Specifically, the public CSV omits the source and destination rate features, the URG packet count, and four of the six aggregate statistics (\emph{Magnitude}, \emph{Radius}, \emph{Covariance}, and \emph{Weight}). The 39-feature version is the basis for all experiments and the live demonstration in this thesis. This is a deliberate scope decision rather than an oversight: results reported here are not directly comparable to studies that use the full 46-feature variant, a limitation stated again where the results are discussed (Chapter~\ref{chap:results}). Table~\ref{tab:features} summarises the 39 features grouped by family.
+\par This is the only feature representation the official CIC distribution provides. Table~\ref{tab:features} summarises the 39 features grouped by family.
 
 \begin{table}[htbp]
 \centering
@@ -189,7 +189,7 @@ TCP flag counts & ACK, SYN, FIN, RST &
 Number of packets in the flow with that flag set. \\
 \hline
 Protocol indicators (binary) & HTTP, HTTPS, DNS, TCP, UDP, \emph{Telnet}, \emph{SMTP}, \emph{SSH}, \emph{IRC}, \emph{DHCP}, \emph{ARP}, \emph{ICMP}, \emph{IGMP}, \emph{IPv}, \emph{LLC} &
-1 if the flow uses that protocol (10 dropped: near-zero variance --- almost always 0). \\
+1 if the flow uses that protocol (10 dropped: near-zero variance, almost always 0). \\
 \hline
 \end{tabular}
 \caption{CICIoT2023 flow features (39-feature public CSV), grouped by family.
@@ -248,6 +248,15 @@ or redundant), leaving the 25 used for all experiments.}
 \label{subsec:other_architectures}
 
 \par Several other architectures have been applied to intrusion detection. Convolutional networks reshape tabular features into one- or two-dimensional grids and use convolutions to extract local patterns tied to protocol-specific or timing signatures \cite{Vinayakumar2018}. Recurrent networks with LSTM units capture temporal dependencies in sequential traffic, which helps in industrial or cyber-physical settings where context over time matters \cite{Kim2020}. Autoencoders learn to reconstruct their input through a bottleneck and, when trained only on benign traffic, use the reconstruction error as an anomaly score; this needs no labelled attacks but depends heavily on the chosen threshold and on training-data quality \cite{Mirsky2018}. Transformers use self-attention to model global relationships among features, treating each feature as a token, but they are usually supervised and more compute-intensive than the alternatives \cite{Wu2022}. Compared with these, the supervised MLP used in this thesis needs labelled data and is less sensitive to genuinely novel attacks, but it trains and serves quickly and calibrates more easily than threshold-based anomaly detectors.
+
+\subsection{Explainability and Feature Attribution}
+\label{subsec:xai_ids}
+
+\par A recurring objection to deep learning for intrusion detection is opacity: a network outputs a verdict but no reason for it, and an alert that cannot be justified is hard to act on or to audit. This has made explainable AI (XAI) a distinct strand of the IDS literature, where post-hoc attribution methods expose which inputs a trained detector relied on, turning a black-box score into something an operator can inspect and contest \cite{Almohri2024XAI}. The need is sharper in security than in many other settings: a false alert carries an investigation cost and a missed one a breach, so the feature that drove a decision is itself operationally useful information.
+
+\par Attribution methods divide into two scopes. \emph{Global} attribution asks which features matter to the model across the whole dataset; permutation importance, which measures the drop in a metric when one feature's values are shuffled to break its association with the label, is a standard model-agnostic example, and it is the method used in Section~\ref{sec:feature_importance} to audit and justify the pruned feature set. \emph{Local} attribution instead explains a single prediction, assigning each feature a signed contribution to that one verdict. The most widely used local method is SHAP (SHapley Additive exPlanations), which borrows the Shapley value from cooperative game theory: it treats the features as players and distributes the gap between the model's output and a baseline expectation among them as additive contributions, with the guarantee that the attributions sum exactly to that gap \cite{Lundberg2017}. A global ranking says which features the detector trusts in general; a local SHAP explanation says which features made \emph{this} flow look like an attack.
+
+\par Both scopes appear in this thesis. The offline feature analysis (Section~\ref{sec:feature_importance}) uses global permutation importance to confirm that the 25 retained features carry the discriminative signal and that the pruned columns do not. The demonstration system (Chapter~\ref{chap:design_implementation}) takes the local view: each flagged flow can be accompanied by an on-demand SHAP attribution showing which features pushed its verdict, so the operator sees not only that a flow was called an attack and with what confidence, but on what grounds. The explanation is computed on request rather than for every flow, because per-prediction Shapley estimation is markedly more expensive than the forward pass it explains, a cost reflected in the demo's reported processing time (Figure~\ref{fig:app_attack}).
 
 \subsection{Challenges in Machine-Learning-Based Intrusion Detection}
 \label{subsec:ids_challenges}

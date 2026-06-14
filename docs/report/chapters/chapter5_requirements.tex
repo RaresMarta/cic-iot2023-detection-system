@@ -1,42 +1,33 @@
 \chapter{Application Requirements and Specification}
 \label{chap:requirements}
 
-\par This chapter defines the application that constitutes the practical contribution of the thesis: a web demonstration in which the user submits captured network traffic and receives per-flow intrusion-detection verdicts from the model of Chapter~\ref{chap:ml_methodology}. It identifies the actor and use cases, states the functional and non-functional requirements, and fixes the system-level specification that constrains the implementation in Chapter~\ref{chap:design_implementation}.
+\par This chapter defines the application that constitutes the practical contribution of the thesis: a web demonstration in which the user submits captured network traffic and receives per-flow intrusion-detection verdicts from the model of Chapter~\ref{chap:ml_methodology}.
 
 \section{Project Goal and Scope}
 \label{sec:project_goal}
 
-\par The application is a real-time intrusion detection demonstration for IoT networks, built around the model of Chapter~\ref{chap:ml_methodology}. It does not train models: it consumes the artefacts produced by the offline training pipeline (the fitted scaler, the label encoder, and the trained weights) and serves them. Concretely, the application loads those artefacts, accepts either a pre-extracted feature CSV in CIC format or a raw packet capture (from which a flow-extraction tool derives the features), runs the trained model, and presents per-flow verdicts and an aggregated summary in the browser.
+\par The application is a real-time intrusion detection demonstration for IoT networks, built around the model of Chapter~\ref{chap:ml_methodology}. It does not train models: it consumes the artefacts produced by the offline training pipeline (the fitted scaler, the label encoder, and the trained weights) and serves them. Concretely, the application loads those artefacts, accepts either a pre-extracted feature CSV in CIC format or a raw packet capture (from which the project's own flow extractor derives the features), runs the trained model, and presents per-flow verdicts and an aggregated summary in the browser.
 
 \par The system targets an interactive, single-request setting: the user supplies a sample of traffic and reviews the verdict on screen. Line-rate gateway protection (sub-millisecond per-packet inference at multi-gigabit throughput) is out of scope; this narrower sense of \enquote{real time} sets the latency thresholds below. Both classification granularities are exposed: the 2-class gate an inline deployment would use, and the 8-class attack-family view an analyst would consume.
-
-\section{Stakeholders and Actors}
-\label{sec:actors}
-
-\par The application has a single actor, the \emph{operator}: the person who opens the web interface, selects a model variant, uploads a packet capture or feature CSV, and reads the per-flow verdicts. Model training is deliberately \emph{not} a function of the application: users cannot train, retrain, or modify models through it. Models are trained offline by the author through the pipeline of Chapter~\ref{chap:ml_methodology}, and the application only consumes the serialised artefacts that training produces. Regenerating those artefacts is a development-time activity that happens outside the application and exposes no user-facing functionality.
-
-\par The core classification path is stateless: submitted captures and CSVs are processed in a temporary location and never persisted (FR-D5). The deployed frontend adds a thin convenience tier on top (user accounts and a per-user history), which stores only derived result metadata, never the uploaded traffic itself (Section~\ref{subsec:auth_persistence}).
 
 \section{Functional Requirements}
 \label{sec:functional_requirements}
 
-\par The functional requirements below concern only the application, that is, the web demonstration that serves the trained model. The offline training pipeline is not part of the application and its methodology is covered in Chapter~\ref{chap:ml_methodology}; the application simply consumes the artefacts that pipeline produces.
+\par The core requirement (FR-D1) is per-flow classification of submitted traffic: the demo accepts either a CSV in the CIC feature format or a raw packet capture, and returns a per-flow verdict table with an aggregated summary. For packet captures the features are derived by the project's own extractor, which reproduces the CIC-IoT-2023 dataset's packet-windowing method so that live features match the training distribution (Section~\ref{sec:cicflowmeter_design}). The remaining requirements support this core. Model-variant selection (FR-D2) lists every (split, granularity) pair with trained artefacts on disk and lets the user switch without restarting. The output schema is deterministic (FR-D3): a summary line with the flow count and a per-label breakdown, followed by a table of row index, predicted label, and confidence. Input is self-validating (FR-D4): a CSV missing expected columns produces an error naming them, and a capture from which no flow can be extracted produces a readable error rather than crashing the request.
 
-\par The core requirement (FR-D1) is per-flow classification of submitted traffic: the demo accepts either a CSV in the CIC feature format or a raw packet capture, and returns a per-flow verdict table with an aggregated summary. For packet captures the established CIC flow-extraction tool is invoked as a subprocess; flow extraction is not reimplemented, since that would risk numerical drift between live and training features. The remaining requirements support this core. Model-variant selection (FR-D2) lists every (split, granularity) pair with trained artefacts on disk and lets the user switch without restarting. The output schema is deterministic (FR-D3): a summary line with the flow count and a per-label breakdown, followed by a table of row index, predicted label, and confidence. Input is self-validating (FR-D4): a CSV missing expected columns produces an error naming them, and a flow-extraction failure surfaces the tool's own error message rather than crashing the request.
-
-\par Raw traffic is never persisted (FR-D5): uploads are processed in a temporary location, removed when the request ends, and never logged; only derived result metadata (model, predicted label, confidence, mode, timestamp) may be stored for an authenticated user. The application is deployed as a permanent public service (FR-D6) at a fixed HTTPS URL with no presenter-side configuration: the backend as a Docker container on Hugging Face Spaces, the React frontend on Vercel, and a local Gradio UI as fallback. Because the demonstration is publicly reachable, the deployed frontend requires authentication and keeps a per-user history of past classifications (FR-D7, metadata only per FR-D5), so that each user's history stays private to them, with isolation enforced at the storage layer rather than in client code.
+\par Raw traffic is never persisted (FR-D5): uploads are processed in a temporary location, removed when the request ends, and never logged; only derived result metadata (model, predicted label, confidence, mode, timestamp) may be stored for an authenticated user. The application is deployed as a permanent public service (FR-D6) at a fixed HTTPS URL with no presenter-side configuration: the backend as a Docker container on Hugging Face Spaces and the React frontend on Vercel. Because the demonstration is publicly reachable, the deployed frontend requires authentication and keeps a per-user history of past classifications (FR-D7, metadata only per FR-D5), so that each user's history stays private to them, with isolation enforced at the storage layer rather than in client code.
 
 \section{Non-Functional Requirements}
 \label{sec:non_functional_requirements}
 
-\par End-to-end per-flow latency through the demo (CSV parsing, scaling, forward pass, result formatting) must stay below 100~ms at p95 on a consumer laptop CPU for batches of up to 1024 flows (NFR-1); packet-capture parsing is excluded because the flow-extraction tool dominates that path, and capture-to-verdict latency is reported separately. For classification performance (NFR-2), the served model must reach at least 0.85 weighted-F1 on the held-out binary test set; the harder 8-class task is a secondary objective whose weighted-F1 is expected to be lower, since the transport-layer features cannot fully separate the application-layer families.
+\par End-to-end per-flow latency through the demo (CSV parsing, scaling, forward pass, result formatting) must stay below 100~ms at p95 on a consumer laptop CPU for batches of up to 1024 flows (NFR-1); packet-capture parsing is excluded because feature extraction dominates that path, and capture-to-verdict latency is reported separately. For classification performance (NFR-2), the served model must reach at least 0.85 weighted-F1 on the held-out binary test set; the harder 8-class task is a secondary objective whose weighted-F1 is expected to be lower, since the transport-layer features cannot fully separate the application-layer families.
 
 \par The application must run on commodity hardware (NFR-3): CPU-only, without a GPU dependency, on both Windows and Linux, with the backend packageable as a Docker image. Operation must stay simple (NFR-4): a permanent HTTPS URL, a single command for local development, and no database, message queue, or dedicated model server, since the backend loads artefacts directly into the application process. Reporting must be faithful (NFR-5): per-class metrics always accompany aggregates so majority-class dominance cannot mask weak minority classes, and the random split's susceptibility to within-session redundancy is stated plainly rather than hidden behind a high aggregate figure.
 
 \section{Use Cases}
 \label{sec:use_cases}
 
-\par The principal interactions are summarised in Table~\ref{tab:use_cases}; the core classification path is then narrated as the representative flow.
+\par The application has a single actor, the \emph{operator}: the person who opens the web interface, selects a model variant, uploads a packet capture or feature CSV, and reads the per-flow verdicts. The principal interactions are summarised in Table~\ref{tab:use_cases}; the core classification path is then narrated as the representative flow.
 
 \begin{table}[htbp]
 \begin{center}
@@ -55,7 +46,7 @@
 \label{tab:use_cases}
 \end{table}
 
-\par In the core flow (UC-1), the operator opens the public NEURAL IDS URL, selects a model variant, and uploads a packet capture. The application stores the capture temporarily, runs the flow-extraction tool to obtain a feature CSV, applies the trained scaler and model, and renders the summary and the per-flow verdict table; the temporary files are then removed. If flow extraction fails, its error output is returned with an empty table. The CSV path (UC-2) is identical except that it validates the CIC column set instead of running flow extraction.
+\par In the core flow (UC-1), the application stores the uploaded capture temporarily, runs the flow extractor to obtain the features, applies the trained scaler and model, renders the summary and per-flow verdict table, and removes the temporary files; if flow extraction fails, its error output is returned with an empty table. The CSV path (UC-2) is identical except that it validates the CIC column set instead of running flow extraction.
 
 \section{System Specification}
 \label{sec:system_specification}
@@ -108,7 +99,7 @@
     \node[serve, below=of weights, yshift=-0.2cm]  (pcap)    {Capture /\\CSV upload};
     \node[serve, right=of pcap]                    (cic)     {Flow\\extractor};
     \node[serve, right=of cic]                     (predict) {Inference\\component};
-    \node[serve, right=of predict]                 (gradio)  {Web UI};
+    \node[serve, right=of predict]                 (webui)  {Web UI};
 
     % Arrows: training row
     \draw[arrow] (raw) -- (parquet);
@@ -128,7 +119,7 @@
     % Serving row
     \draw[arrow] (pcap) -- (cic);
     \draw[arrow] (cic) -- (predict);
-    \draw[arrow] (predict) -- (gradio);
+    \draw[arrow] (predict) -- (webui);
 
     \end{tikzpicture}%
     }
@@ -139,7 +130,7 @@
 \subsection{Technology Stack and Rationale}
 \label{subsec:tech_stack}
 
-\par The technology choices follow from the requirements. Features are scaled with the robust median/IQR scaler and labels use a reversible integer encoder; imbalance is handled by class-weighted cross-entropy (Section~\ref{subsec:class_weighted_ce}). The served model is the MLP of Section~\ref{sec:model_architecture}, with the Random Forest baseline trained and evaluated offline only. Packet captures are converted to feature CSVs by CICFlowMeter, the CIC team's reference tool, to avoid numerical drift between live and training features. The demo pairs a Gradio + FastAPI backend with the NEURAL IDS React dashboard, containerised on Hugging Face Spaces and served from Vercel respectively, which yields a permanent HTTPS URL (NFR-3, NFR-4). The backend loads the artefacts directly into the application process, so no separate model server is needed.
+\par The technology choices follow from the requirements. Features are scaled with the robust median/IQR scaler and labels use a reversible integer encoder; imbalance is handled by class-weighted cross-entropy (Section~\ref{subsec:class_weighted_ce}). The served model is the MLP of Section~\ref{sec:model_architecture}, with the Random Forest baseline trained and evaluated offline only. Packet captures are converted to features by the project's own \texttt{dpkt}-based extractor, which reproduces the windowing method the CIC-IoT-2023 dataset was itself built with; CICFlowMeter is deliberately not used, because its feature definitions differ from the dataset's (Section~\ref{sec:cicflowmeter_design}). The demo pairs a FastAPI backend with the NEURAL IDS React dashboard, containerised on Hugging Face Spaces and served from Vercel respectively, which yields a permanent HTTPS URL (NFR-3, NFR-4). The backend loads the artefacts directly into the application process, so no separate model server is needed.
 
 \subsection{Constraints and Assumptions}
 \label{subsec:constraints}

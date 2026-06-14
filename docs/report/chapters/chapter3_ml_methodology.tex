@@ -9,8 +9,8 @@
 \par The dataset provides 34 fine-grained labels (the 33 attack types of Section~\ref{subsec:attack_taxonomy} plus benign traffic). This thesis does not classify at that finest level. Instead, the same rows are relabelled into two classification tasks of practical interest:
 
 \begin{itemize}
-    \item \textbf{Binary (2-class)} --- benign versus attack. This is the task an alerting IDS uses to decide whether traffic is malicious at all, and it is the primary task of the thesis.
-    \item \textbf{8-class} --- the seven attack families of Table~\ref{tab:attack_taxonomy} (DDoS, DoS, Reconnaissance, Web-based, Brute Force, Spoofing, Mirai) plus benign. This is the coarser attack-family view an analyst consumes, reported as a secondary task.
+    \item \textbf{Binary (2-class)}: benign versus attack. This is the task an alerting IDS uses to decide whether traffic is malicious at all, and it is the primary task of the thesis.
+    \item \textbf{8-class}: the seven attack families of Table~\ref{tab:attack_taxonomy} (DDoS, DoS, Reconnaissance, Web-based, Brute Force, Spoofing, Mirai) plus benign. This is the coarser attack-family view an analyst consumes, reported as a secondary task.
 \end{itemize}
 
 \par Both tasks are derived from the same subsampled rows and the same train/validation/test partitions; only the label mapping changes. The 34-class fine-grained task is not modelled, because the rarest variants hold too few unique records (Section~\ref{subsec:dataset_stats}) to train and evaluate reliably, and because attack-family granularity is sufficient for the alerting and triage use cases the demonstration targets.
@@ -109,7 +109,7 @@ where $y_{i,k}$ is the one-hot ground-truth indicator for sample $i$ and class $
 \subsection{Hyperparameter Selection}
 \label{subsec:hpo}
 
-\par The architecture and optimisation settings above are not arbitrary: they were selected by an automated hyperparameter search using the Optuna framework \cite{Akiba2019} rather than fixed by hand. A Tree-structured Parzen Estimator (TPE) sampler explores the search space summarised in Table~\ref{tab:hpo_space} over fifteen trials, each trained for ten epochs on a 100{,}000-row stratified subsample of the training set. The objective maximised is the validation macro-F1, chosen over validation loss so the search rewards balanced performance across the imbalanced classes rather than overall likelihood. The search is run separately for each task, so the selected configurations differ by task; they are listed in Table~\ref{tab:hpo_selected}. Each selected configuration is then retrained to convergence (up to fifty epochs with early stopping) on the full training set and used for all reported results. The Random Forest baseline is tuned by the same Optuna TPE procedure over thirty trials, also maximising validation macro-F1, and its selected hyperparameters appear alongside the MLP in Table~\ref{tab:hpo_selected}.
+\par The architecture and optimisation settings above are not arbitrary: they were selected by an automated hyperparameter search using the Optuna framework \cite{Akiba2019} rather than fixed by hand. A Tree-structured Parzen Estimator (TPE) sampler explores the search space summarised in Table~\ref{tab:hpo_space} over thirty trials, each trained for ten epochs on a 100{,}000-row stratified subsample of the training set. The objective maximised is the validation macro-F1, chosen over validation loss so the search rewards balanced performance across the imbalanced classes rather than overall likelihood. The search is run separately for each task, so the selected configurations differ by task; they are listed in Table~\ref{tab:hpo_selected}. Each selected configuration is then retrained to convergence (up to fifty epochs with early stopping) on the full training set and used for all reported results. The Random Forest baseline is tuned by the same Optuna TPE procedure over thirty trials, also maximising validation macro-F1, and its selected hyperparameters appear alongside the MLP in Table~\ref{tab:hpo_selected}.
 
 \begin{table}[htbp]
 \begin{center}
@@ -127,7 +127,7 @@ where $y_{i,k}$ is the one-hot ground-truth indicator for sample $i$ and class $
 \hline
 \end{tabular}
 \end{center}
-\caption{Optuna TPE search space for the MLP. Fifteen trials, ten epochs each on a 100{,}000-row subsample, validation macro-F1 as the objective.}
+\caption{Optuna TPE search space for the MLP. Thirty trials, ten epochs each on a 100{,}000-row subsample, validation macro-F1 as the objective.}
 \label{tab:hpo_space}
 \end{table}
 
@@ -167,12 +167,26 @@ Trees ($n_\text{estimators}$) & 300 & 450 \\
 \subsection{Classification Metrics}
 \label{subsec:classification_metrics}
 
-\par Every (granularity, model) combination is evaluated with the same protocol: accuracy, macro-averaged F1, support-weighted F1, macro precision and recall, the full per-class precision/recall/F1 report, and the row-normalised confusion matrix. Two averages of F1 are reported because they answer different questions under class imbalance. Weighted F1 averages the per-class F1 scores proportionally to class support, so it reflects performance on the traffic mix as it actually occurs but can be dominated by the large DDoS and Mirai classes. Macro F1 weights every class equally, so it exposes weakness on the rare classes that weighted F1 can hide. Aggregate numbers are always accompanied by the per-class report.
+\par Every (granularity, model) combination is evaluated under the same protocol: accuracy, precision, recall, and F1, reported both per class and as macro and support-weighted averages, alongside the row-normalised confusion matrix. The four base metrics derive from the per-class one-versus-rest counts: true positives (TP), false positives (FP), true negatives (TN), and false negatives (FN). Accuracy is the fraction of flows classified correctly; precision is the share of flows predicted as a class that truly belong to it; recall is the share of a class's flows that are recovered; and F1 is the harmonic mean of precision and recall, which stays low unless both are high:
+\begin{equation}
+\begin{aligned}
+\mathrm{Accuracy}  &= \frac{TP + TN}{TP + TN + FP + FN}, &\qquad
+\mathrm{Precision} &= \frac{TP}{TP + FP}, \\[8pt]
+\mathrm{Recall}    &= \frac{TP}{TP + FN}, &\qquad
+\mathrm{F1}        &= \frac{2\,\mathrm{Precision}\cdot\mathrm{Recall}}{\mathrm{Precision} + \mathrm{Recall}}.
+\end{aligned}
+\end{equation}
+
+\par For the multi-class tasks each score is averaged over classes two ways, because they answer different questions under class imbalance. The \emph{weighted} average weights each class's score by its support, so it reflects the traffic mix as it actually occurs but can be dominated by the large DDoS and Mirai classes. The \emph{macro} average weights every class equally, so it exposes weakness on the rare classes that the weighted average can hide. Aggregate numbers are always accompanied by the per-class report.
 
 \subsection{Confidence Calibration}
 \label{subsec:calibration_method}
 
-\par The model reports the maximum softmax probability as a confidence score alongside each verdict. Raw softmax outputs, however, are known to be poorly calibrated, typically overconfident, on modern neural networks \cite{Guo2017}. The MLP is therefore calibrated by \emph{temperature scaling}: a single scalar $T > 0$ is fitted on the validation-set logits $\mathbf{z}$ by minimising the negative log-likelihood, and predictions are recomputed as $\mathrm{softmax}(\mathbf{z}/T)$. Temperature scaling leaves the argmax, and hence the accuracy, unchanged; it only rescales the confidence. Calibration quality is measured by the Expected Calibration Error (ECE), the support-weighted average gap between confidence and accuracy across fifteen equal-width confidence bins. The fitted temperatures and the resulting change in ECE are reported in Section~\ref{sec:calibration}.
+\par Each verdict is shown with a confidence score, the largest of the model's softmax probabilities. For that number to be useful it should mean what it says: among the flows a model calls attacks with 90\% confidence, about 90\% should truly be attacks. Modern neural networks rarely satisfy this out of the box; they tend to be \emph{overconfident}, reporting peak probabilities well above their actual accuracy \cite{Guo2017}. The reason lies in the training objective. Cross-entropy is minimised by driving the correct-class probability towards one, and once a flow is already classified correctly the only way to reduce its loss further is to widen the gap between the correct logit and the rest. Training therefore keeps inflating logit magnitudes long after the predictions have stopped changing, and the softmax peak saturates towards one. Class-weighted training sharpens this on the classes it emphasises, which is why (Section~\ref{sec:calibration}) the binary model, dominated by a single heavily-weighted attack class, ends up markedly more overconfident than the eight-class model.
+
+\par \emph{Temperature scaling} corrects the scores without touching the predictions. A single scalar $T > 0$ is fitted on the validation-set logits $\mathbf{z}$ by minimising the negative log-likelihood, and the served probabilities are recomputed as $\mathrm{softmax}(\mathbf{z}/T)$; a value $T > 1$ flattens the distribution and pulls the inflated peak back down towards the empirical accuracy. The property that makes this safe is monotonicity: dividing every logit by the same positive constant leaves their ordering intact, so the largest logit stays the largest. The predicted label is therefore unchanged, and with it the accuracy, precision, recall, and the entire confusion matrix; only the reported probability moves. Calibration is in this sense a free correction, improving the honesty of the confidence number at no cost to any classification metric. It also explains why a single parameter is preferred over the richer per-class scalings, which have enough freedom to overfit the validation set and perturb the predictions \cite{Guo2017}.
+
+\par Calibration quality is measured by the Expected Calibration Error (ECE): predictions are sorted into fifteen equal-width confidence bins, and ECE is the support-weighted average gap between the mean confidence and the mean accuracy within each bin, so a perfectly calibrated model scores zero. The fitted temperatures and the resulting change in ECE are reported in Section~\ref{sec:calibration}. The distinction is not cosmetic for an alerting tool: an operator who triages by confidence, or suppresses alerts below a threshold, is trusting that a high score really does mean a high chance of attack, and an uncalibrated 99\% that is right only four times in five would quietly undermine that decision.
 
 \subsection{Latency Benchmark}
 \label{subsec:latency_benchmark}

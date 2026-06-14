@@ -152,10 +152,20 @@ async def classify_endpoint(
     t0 = time.time()
     contents = await file.read()
 
+    fname = file.filename or 'upload.csv'
+    is_pcap = fname.lower().endswith(('.pcap', '.pcapng', '.cap'))
     with tempfile.TemporaryDirectory() as tmp:
-        csv_path = Path(tmp) / (file.filename or 'upload.csv')
-        csv_path.write_bytes(contents)
-        df = pl.read_csv(str(csv_path))
+        path = Path(tmp) / fname
+        path.write_bytes(contents)
+        if is_pcap:
+            from ids.runtime.extractor import extract_features
+            df = extract_features(str(path))
+        else:
+            df = pl.read_csv(str(path))
+
+    if df.height == 0:
+        return {'error': 'No flows could be extracted from the upload. For packet '
+                         'captures, ensure the file contains IPv4 TCP/UDP traffic.'}
 
     pred = predictor.predict(df)
     result = _aggregate(pred)
@@ -169,6 +179,7 @@ async def classify_endpoint(
     result['mode']        = mode
     result['split']       = split
     result['file_name']   = file.filename
+    result['input_type']  = 'pcap' if is_pcap else 'csv'
     result['success']     = True
 
     return result
