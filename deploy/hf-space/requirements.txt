@@ -1,0 +1,15 @@
+# Serving deps for the analyzer Space. torch (CPU) is installed in the Dockerfile.
+# Trimmed vs the training requirements: no matplotlib/seaborn/wandb/optuna.
+polars
+pyarrow
+numpy
+# Pinned to the version the model artefacts were saved with — unpickling an RF
+# across a sklearn minor (1.8 -> 1.9) warns and can give invalid predictions.
+scikit-learn==1.8.0
+joblib
+pandas
+fastapi
+uvicorn[standard]
+python-multipart
+shap
+dpkt

@@ -54,14 +54,14 @@
     \end{minipage}
 \end{figure}
 
-\par Two perfectly collinear pairs are clearly visible: \texttt{AVG} packet length and \texttt{Tot\_size} (total bytes, which is average $\times$ count), and \texttt{Std} (standard deviation of packet lengths) and \texttt{Variance} (its square). These pairs were retained because a RobustScaler absorbs collinearity without numerical instability, and removing one of each pair would not change the predictions of a tree ensemble (which would select the same split point on either feature) and would make only a negligible difference for the MLP. The \texttt{IAT} (inter-arrival time) feature is nearly orthogonal to all others, which is consistent with its role as a timing feature rather than a size-based statistic.
+\par Two perfectly collinear pairs are clearly visible: \texttt{AVG} packet length and \texttt{Tot\_size} (total bytes, which is average $\times$ count), and \texttt{Std} (standard deviation of packet lengths) and \texttt{Variance} (its square). From each pair the redundant member (\texttt{Tot\_size} and \texttt{Variance}) is dropped, keeping \texttt{AVG} and \texttt{Std}: the discarded column carries no information its partner does not, so a tree ensemble would select the same split point on either feature and the MLP is unaffected. The \texttt{IAT} (inter-arrival time) feature is nearly orthogonal to all others, which is consistent with its role as a timing feature rather than a size-based statistic.
 
 \subsection{Binary Flag Feature Variance}
 \label{subsec:flag_variances}
 
 \par The 21 binary protocol-indicator and TCP flag columns vary widely in empirical variance. Figure~\ref{fig:flag_variances} shows these variances in descending order.
 
-\par Features with variance below 0.01 are close-to-constant across the training sample and contribute noise rather than signal: a near-constant feature effectively tells the model nothing about class membership. Fourteen such features are identified and removed. The remaining 25 features form the input vector used by all models, ensuring that the scaler and the MLP are not exposed to the collinear or near-zero-variance columns that would otherwise require special handling.
+\par Features with variance below 0.01 are close-to-constant across the training sample and contribute noise rather than signal: a near-constant feature effectively tells the model nothing about class membership. Twelve such features are identified and removed. Together with the two redundant continuous columns dropped above, this prunes the set to the 25 features that form the input vector used by all models, ensuring that the scaler and the MLP are not exposed to the collinear or near-zero-variance columns that would otherwise require special handling.
 
 \section{Feature Importance}
 \label{sec:feature_importance}
@@ -199,6 +199,6 @@
 
 \par Both models generalise from train to test with small accuracy drops (below 8 percentage points). Because the split is random, these small gaps partly reflect the within-session redundancy noted in Section~\ref{subsec:split_strategies}: many test rows have near-duplicate neighbours in training, so the figures reported here should be read as an upper bound rather than a deployment estimate.
 
-\par The principal failure modes are the ones the design anticipated, and Section~\ref{sec:multiclass_results} traced each to the feature set rather than the model: the application-layer attacks (Web, Recon, Spoofing) leave no signal in a transport-layer representation, and the statistically similar DDoS and DoS floods overlap in feature space. Both are properties of the dataset's extraction methodology, not model defects.
+\par The principal failure modes are the ones the design anticipated, and Section~\ref{sec:multiclass_results} traced each to the feature set rather than the model: the application-layer attacks (Web, Recon, Brute Force) leave no signal in a transport-layer representation, and the statistically similar DDoS and DoS floods overlap in feature space. Both are properties of the dataset's extraction methodology, not model defects.
 
 \par NFR-2 (at least 0.85 weighted F1 on the \emph{binary} test set) is satisfied by both models, which reach $\approx$0.93 (MLP) to $\approx$0.96 (Random Forest). At the 8-class granularity no model reaches 0.85 (the best attain $\approx$0.84), which the design treats as the ceiling imposed by a transport-layer feature set rather than a target failure, in keeping with the secondary status assigned to the 8-class task in NFR-2. NFR-5 (faithful reporting) is respected by reporting per-class metrics rather than only aggregate numbers, so that the minority-class weakness is visible without requiring the reader to look past a high aggregate figure, and by flagging the random split's within-session redundancy (Section~\ref{subsec:split_strategies}).
