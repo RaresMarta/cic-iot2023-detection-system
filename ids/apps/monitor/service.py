@@ -26,6 +26,7 @@ from ids.runtime.predictor import MLPClassifier  # noqa: E402
 from . import config, producers  # noqa: E402
 from .detector import Detector  # noqa: E402
 from .events import Broker  # noqa: E402
+from .store import SqliteSink  # noqa: E402
 
 
 @asynccontextmanager
@@ -54,9 +55,22 @@ async def lifespan(app: FastAPI):
     app.state.model = f'{config.MODEL_SPLIT} gate={config.MODEL_MODE_GATE} family={config.MODEL_MODE_FAMILY}'
     await detector.start()
     print(f'[service] started: mode={producer.mode} model={app.state.model}', flush=True)
+
+    # Optional event store: a second broker consumer that persists incidents + stats.
+    # Default-off; never on the detection path (see store.py).
+    app.state.store = None
+    app.state.store_task = None
+    if config.DB_ENABLED:
+        sink = SqliteSink(config.DB_PATH, broker, snapshot_s=config.DB_SNAPSHOT_S)
+        app.state.store = sink
+        app.state.store_task = asyncio.create_task(sink.run(detector))
+        print(f'[service] event store enabled: {config.DB_PATH}', flush=True)
+
     try:
         yield
     finally:
+        if app.state.store_task is not None:
+            app.state.store_task.cancel()
         await detector.stop()
 
 
@@ -75,6 +89,15 @@ def health():
 @app.get('/api/stats')
 def stats():
     return app.state.detector.snapshot_stats()
+
+
+@app.get('/api/incidents')
+def incidents(limit: int = 50):
+    """Recent attack episodes from the event store (empty if the store is disabled)."""
+    store = getattr(app.state, 'store', None)
+    if store is None:
+        return {'enabled': False, 'incidents': []}
+    return {'enabled': True, 'incidents': store.recent_incidents(limit)}
 
 
 class InjectRequest(BaseModel):
