@@ -61,3 +61,10 @@ RECOVER_AFTER_S = _env_float('IDS_RECOVER_AFTER_S', 5.0)
 SOURCE = _env_str('IDS_SOURCE', 'replay')
 PCAP_PATH = _env_str('IDS_PCAP', '')
 PCAP_REALTIME = os.environ.get('IDS_PCAP_REALTIME', '0') == '1'
+
+# ntfy push notifications: alert the admin's phone on each attack episode. Opt-in and
+# default-off; never on the detection path (see notifier.py). Set IDS_NTFY_URL to your
+# topic, e.g. https://ntfy.sh/<your-random-topic>.
+NTFY_ENABLED = _env_str('IDS_NTFY_ENABLED', 'false').lower() == 'true'
+NTFY_URL = _env_str('IDS_NTFY_URL', '')
+NTFY_ON_RECOVER = _env_str('IDS_NTFY_ON_RECOVER', 'true').lower() == 'true'

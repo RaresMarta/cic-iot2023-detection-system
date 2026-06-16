@@ -26,6 +26,7 @@ from ids.runtime.predictor import MLPClassifier  # noqa: E402
 from . import config, producers  # noqa: E402
 from .detector import Detector  # noqa: E402
 from .events import Broker  # noqa: E402
+from .notifier import NtfyNotifier  # noqa: E402
 
 
 @asynccontextmanager
@@ -54,9 +55,20 @@ async def lifespan(app: FastAPI):
     app.state.model = f'{config.MODEL_SPLIT} gate={config.MODEL_MODE_GATE} family={config.MODEL_MODE_FAMILY}'
     await detector.start()
     print(f'[service] started: mode={producer.mode} model={app.state.model}', flush=True)
+
+    # Optional ntfy push notifier: a broker consumer that pushes a phone alert per
+    # attack episode. Default-off; never on the detection path (see notifier.py).
+    app.state.notifier_task = None
+    if config.NTFY_ENABLED and config.NTFY_URL:
+        notifier = NtfyNotifier(config.NTFY_URL, broker, on_recover=config.NTFY_ON_RECOVER)
+        app.state.notifier_task = asyncio.create_task(notifier.run())
+        print(f'[service] ntfy notifier enabled: {config.NTFY_URL}', flush=True)
+
     try:
         yield
     finally:
+        if app.state.notifier_task is not None:
+            app.state.notifier_task.cancel()
         await detector.stop()
 
 
