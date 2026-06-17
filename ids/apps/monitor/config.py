@@ -61,3 +61,10 @@ RECOVER_AFTER_S = _env_float('IDS_RECOVER_AFTER_S', 5.0)
 SOURCE = _env_str('IDS_SOURCE', 'replay')
 PCAP_PATH = _env_str('IDS_PCAP', '')
 PCAP_REALTIME = os.environ.get('IDS_PCAP_REALTIME', '0') == '1'
+
+# Event store: persist incidents + periodic stats snapshots to SQLite. Opt-in and
+# default-off so the detector is unchanged unless explicitly enabled. The DB lives
+# under the gitignored data/ dir by default. (MODELS_DIR.parent == PROJECT_ROOT.)
+DB_ENABLED = _env_str('IDS_DB_ENABLED', 'false').lower() == 'true'
+DB_PATH = _env_str('IDS_DB_PATH', str(MODELS_DIR.parent / 'data' / 'events.db'))
+DB_SNAPSHOT_S = _env_float('IDS_DB_SNAPSHOT_S', 15.0)
