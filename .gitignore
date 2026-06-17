@@ -36,6 +36,9 @@ models_backup_39feat/
 # Trained model artifacts — large (RF forests up to ~1.4 GB) and regenerable by
 # `python -m ids.training`; kept out of git and delivered separately.
 /models/
+# HF Space deploy artifact — the RF forest exceeds GitHub's 100 MB limit and is
+# uploaded to the Space directly (see deploy/hf-space/DEPLOY.md), not tracked here.
+/deploy/hf-space/models/ids_rf_random_2class.joblib
 
 # Python packaging build artifacts
 *.egg-info/
