@@ -1,0 +1,36 @@
+{
+  "experiment": "cross_dataset_iot23_transfer",
+  "date": "2026-06-24",
+  "version": "v2_corrected",
+  "type": "ood_generalization_inference_only",
+  "correction_note": "v1 used the stale models/preprocessor_random.joblib (mis-scaled all inputs -> all-attack incl CIC in-dist FPR=1.0). RETRACTED. v2 uses a training-matched fresh fit_preprocess on the CIC train split (reproduces saved-artifact in-dist FPR 0.018).",
+  "model": {
+    "task": "2class_benign_vs_attack",
+    "rf": "ids_rf_random_2class.joblib",
+    "mlp": "ids_dnn_random_2class.pth",
+    "preprocessor": "fresh fit_preprocess on CIC train split (NOT the stale preprocessor_random.joblib)",
+    "n_features": 25
+  },
+  "harness": {"module": "ids.eval.iot23_align", "window": 10, "feature_parity": "pass (25/25)",
+              "warning": "ids.eval.cross_dataset_eval.predict() is BUGGED: loads stale preprocessor_random.joblib"},
+  "cic_in_distribution_sanity": {
+    "mlp": {"tpr": 0.902, "fpr": 0.021, "benign_correct": "29383/30000", "note": "matches saved artifact fpr 0.018 -> healthy"},
+    "rf":  {"tpr": 0.971, "fpr": 0.351, "benign_correct": "19471/30000", "note": "RF FP-prone even in-distribution"}
+  },
+  "captures": {
+    "CTU-Honeypot-Capture-4-1": {
+      "kind": "benign_only", "windows": 1699, "ground_truth": {"attack": 0, "benign": 1699},
+      "rf":  {"fpr": 0.9994, "benign_correct": "1/1699"},
+      "mlp": {"fpr": 0.9941, "benign_correct": "10/1699"}
+    },
+    "CTU-IoT-Malware-Capture-34-1": {
+      "kind": "mixed", "windows": 22862, "ground_truth": {"attack": 20248, "benign": 2614},
+      "rf":  {"fpr": 0.9973, "tpr": 0.9996, "benign_correct": "7/2614"},
+      "mlp": {"fpr": 0.9805, "tpr": 0.6589, "benign_correct": "51/2614"}
+    }
+  },
+  "conclusion": "Model healthy in-distribution (MLP FPR ~2%) but flags ~99% of benign IoT-23 traffic as attack. The 2%->99% gap = valid evidence of testbed overfitting / poor cross-dataset transfer. MLP is the clean exhibit; RF weaker (35% in-dist FPR).",
+  "scope": "One external dataset; window=10 pins Number leak. 'Fails to transfer to IoT-23', not 'never transfers'. Do NOT cite v1 all-attack numbers.",
+  "separate_bug": "models/preprocessor_random.joblib stale/mismatched with deployed models; ids/runtime/predictor.py (serving) loads it -> live demo mis-scales -> all-attack. Regenerate.",
+  "followups": ["re-run identical IoT-23 baseline after benign-augmentation retrain (FPR change)", "fix preprocessor serving bug"]
+}
