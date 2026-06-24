@@ -1,0 +1,48 @@
+{
+  "experiment": "benign-augmentation-ab",
+  "date": "2026-06-24",
+  "hypothesis": "Increasing benign training volume (200k cap -> all unique benign) reduces the ~99% out-of-distribution false-positive rate on IoT-23 benign traffic.",
+  "result": "REJECTED. Augmentation did not reduce OOD benign FPR; on the second capture (honeypot-5-1) it made the MLP substantially worse (0.369 -> 0.999).",
+  "held_constant": {"rf_max_depth": 25, "split": "single stratified random 70/15/15", "seed": 42, "features": 25, "only_change": "benign training volume"},
+  "data": {
+    "base_parquet": "data/cic_iot_2023.parquet (4,448,253 rows; benign capped at 200,000)",
+    "augmented_parquet": "data/cic_iot_2023_benignaug.parquet (5,342,156 rows; 4,248,253 attack unchanged + 1,093,903 unique benign)",
+    "benign_label_string": "Benign_Final",
+    "benign_source": "data/cic-iot-2023-benign/BenignTraffic{,1,2,3}.pcap.csv (1,098,191 raw -> 1,093,903 unique on 25 features)",
+    "augmented_benign_fraction": 0.2048
+  },
+  "in_distribution_cic_test": {
+    "note": "augmented numbers use the augmented test split (more benign); FPR/TPR are rates so comparable. Baselines are the locked depth-25 values.",
+    "baseline": {"rf": {"fpr": 0.351, "tpr": 0.971}, "mlp": {"fpr": 0.021, "tpr": 0.902}},
+    "augmented": {"rf": {"fpr": 0.0333, "tpr": 0.9348}, "mlp": {"fpr": 0.0169, "tpr": 0.9143}}
+  },
+  "cross_dataset_ab": {
+    "window": 10,
+    "honeypot-4-1": {
+      "type": "benign-only", "n_kept": 1699, "truth_benign": 1699, "truth_attack": 0,
+      "baseline_rf_fpr": 0.9994, "baseline_mlp_fpr": 0.9941,
+      "augmented_rf_fpr": 0.9994, "augmented_mlp_fpr": 0.9959
+    },
+    "34-1-mixed": {
+      "type": "mixed", "n_kept": 22862, "truth_benign": 2614, "truth_attack": 20248,
+      "baseline_rf_fpr": 0.9973, "baseline_rf_tpr": 0.9996,
+      "baseline_mlp_fpr": 0.9805, "baseline_mlp_tpr": 0.6589,
+      "augmented_rf_fpr": 0.9946, "augmented_rf_tpr": 0.9996,
+      "augmented_mlp_fpr": 0.9621, "augmented_mlp_tpr": 0.9244
+    },
+    "honeypot-5-1": {
+      "type": "benign-only (validation capture)", "n_kept": 39760, "truth_benign": 39760, "truth_attack": 0,
+      "baseline_rf_fpr": 0.8274, "baseline_mlp_fpr": 0.3688,
+      "augmented_rf_fpr": 0.9841, "augmented_mlp_fpr": 0.9987
+    }
+  },
+  "preprocessor_fix": {
+    "bug": "models/preprocessor_random.joblib was stale; serving mis-scaled -> all-attack (in-dist FPR 1.0).",
+    "fix": "scripts/regenerate_preprocessor.py re-fits on the SEED train split; in-dist MLP FPR restored to 0.02.",
+    "second_bug": "load_dataset double-applied log1p (train) vs single (serving); fixed so Preprocessor is sole owner.",
+    "guards": "tests/test_preprocessor_parity.py, tests/test_load_dataset_raw.py (all pass)."
+  },
+  "incomplete": {
+    "8class_rf": "augmented 8-class RandomForest retrain crashed on save (OSError errno 28, disk full); deferred to a later retrain. 8-class MLP trained (val macro-F1 0.6299). Not on the A/B critical path (cross-dataset eval is 2-class only)."
+  }
+}
