@@ -27,7 +27,8 @@ from ids.training.data import load_dataset
 from ids.training.evaluation import metrics5
 from ids.training.trainers import train_rf
 
-SPLITS = ['random', 'temporal']
+SPLITS = ['random', 'per_csv', 'temporal']
+BASELINE = 'random'
 MODES = ['2', '8']
 METRIC_KEYS = ['accuracy', 'macro_f1', 'weighted_f1', 'macro_precision', 'macro_recall']
 
@@ -80,17 +81,20 @@ def main():
         print()
 
     # ---- Comparison tables (test set) ----
-    print('\n' + '=' * 78)
-    print('TEST-SET COMPARISON  (random vs temporal)')
-    print('=' * 78)
+    others = [s for s in SPLITS if s != BASELINE]
+    print('\n' + '=' * 90)
+    print('TEST-SET COMPARISON  (random vs per_csv vs temporal)')
+    print('=' * 90)
     for mode in MODES:
         print(f'\n--- {mode}-class ---')
-        hdr = f'{"metric":<18}' + ''.join(f'{s:>12}' for s in SPLITS) + f'{"Δ(temp-rand)":>16}'
+        hdr = (f'{"metric":<18}' + ''.join(f'{s:>12}' for s in SPLITS)
+               + ''.join(f'{("Δ(" + s + "-rand)"):>18}' for s in others))
         print(hdr)
         for k in METRIC_KEYS:
-            r = results[('random', mode, 'test')][k]
-            t = results[('temporal', mode, 'test')][k]
-            print(f'{k:<18}' + f'{r:>12.4f}{t:>12.4f}' + f'{t - r:>+16.4f}')
+            vals = {s: results[(s, mode, 'test')][k] for s in SPLITS}
+            row = f'{k:<18}' + ''.join(f'{vals[s]:>12.4f}' for s in SPLITS)
+            row += ''.join(f'{vals[s] - vals[BASELINE]:>+18.4f}' for s in others)
+            print(row)
 
     # ---- Train->test generalization gap (leakage proxy) ----
     print('\n' + '=' * 78)
