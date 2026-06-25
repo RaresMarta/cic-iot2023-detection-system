@@ -42,7 +42,6 @@ class NtfyNotifier:
             ip = evt.get('attacker_ip', '?')
             self._post(title='IDS cleared', body=f'{ip} went quiet',
                        priority='low', tags='white_check_mark')
-        # 'flow' and everything else: ignored.
 
     def _post(self, title: str, body: str, priority: str, tags: str) -> None:
         try:

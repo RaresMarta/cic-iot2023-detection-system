@@ -21,7 +21,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 
-from ids.runtime.predictor import MLPClassifier  # noqa: E402
+from ids.runtime.predictor import MLPClassifier, RFClassifier  # noqa: E402
 
 from . import config, producers  # noqa: E402
 from .detector import Detector  # noqa: E402
@@ -30,10 +30,28 @@ from .store import SqliteSink  # noqa: E402
 from .notifier import NtfyNotifier  # noqa: E402
 
 
+def _build_predictor(model_type: str, mode: str):
+    """Build one classifier head. 'mlp' -> PyTorch net; 'rf' -> RandomForest joblib.
+    Both expose the same predict() contract, so callers stay model-agnostic."""
+    model_type = model_type.lower()
+    if model_type == 'rf':
+        return RFClassifier(config.MODELS_DIR, kind='rf', split=config.MODEL_SPLIT, mode=mode)
+    if model_type == 'mlp':
+        return MLPClassifier(config.MODELS_DIR, split=config.MODEL_SPLIT, mode=mode)
+    raise ValueError(f"unknown model type {model_type!r}; use 'mlp' or 'rf'")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    gate_predictor = MLPClassifier(config.MODELS_DIR, split=config.MODEL_SPLIT, mode=config.MODEL_MODE_GATE)
-    family_predictor = MLPClassifier(config.MODELS_DIR, split=config.MODEL_SPLIT, mode=config.MODEL_MODE_FAMILY)
+    if config.DECISION_MODE == 'single':
+        # One 8-class model both triggers alerts (argmax != Benign) and labels the
+        # family. Passing it as both heads keeps detector.py unchanged: the gate's
+        # "Benign?" check and the family label are read from the same prediction.
+        family_predictor = _build_predictor(config.FAMILY_MODEL, config.MODEL_MODE_FAMILY)
+        gate_predictor = family_predictor
+    else:
+        gate_predictor = _build_predictor(config.GATE_MODEL, config.MODEL_MODE_GATE)
+        family_predictor = _build_predictor(config.FAMILY_MODEL, config.MODEL_MODE_FAMILY)
     producer, inject_queue = producers.from_config()
     broker = Broker()
 
@@ -53,7 +71,11 @@ async def lifespan(app: FastAPI):
     app.state.broker = broker
     app.state.inject_queue = inject_queue          # None unless simulate mode
     app.state.mode = producer.mode
-    app.state.model = f'{config.MODEL_SPLIT} gate={config.MODEL_MODE_GATE} family={config.MODEL_MODE_FAMILY}'
+    if config.DECISION_MODE == 'single':
+        app.state.model = f'{config.MODEL_SPLIT} single-8class={config.FAMILY_MODEL}'
+    else:
+        app.state.model = (f'{config.MODEL_SPLIT} gate={config.GATE_MODEL}-{config.MODEL_MODE_GATE}c '
+                           f'family={config.FAMILY_MODEL}-{config.MODEL_MODE_FAMILY}c')
     await detector.start()
     print(f'[service] started: mode={producer.mode} model={app.state.model}', flush=True)
 

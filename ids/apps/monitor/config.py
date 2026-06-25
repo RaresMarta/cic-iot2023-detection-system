@@ -40,6 +40,16 @@ def _env_set(name: str, default: set[str]) -> set[str]:
 MODEL_SPLIT = _env_str('IDS_SPLIT', 'random')
 MODEL_MODE_GATE = _env_str('IDS_MODE_GATE', '2')
 MODEL_MODE_FAMILY = _env_str('IDS_MODE_FAMILY', '8')
+# Model type per head, independently swappable: 'mlp' (tiny PyTorch net, ~1 MB) or
+# 'rf' (RandomForest joblib — the 8-class forest is ~1.3 GB, so mind RAM/disk).
+# Both share the same predict() contract, so the detector is agnostic to the choice.
+GATE_MODEL = _env_str('IDS_GATE_MODEL', 'mlp').lower()
+FAMILY_MODEL = _env_str('IDS_FAMILY_MODEL', 'mlp').lower()
+# Decision architecture: 'gate' (default, thesis design — a 2-class gate triggers
+# alerts, the 8-class head labels the family) or 'single' (one 8-class model does
+# both: argmax != Benign triggers, and is itself the family label). 'single' drops
+# the gate stage and so diverges from the thesis; keep it for comparison only.
+DECISION_MODE = _env_str('IDS_DECISION_MODE', 'gate').lower()
 
 # Capture: bridge interface name from docker-compose
 IFACE = _env_str('IDS_IFACE', 'ids-br0')
