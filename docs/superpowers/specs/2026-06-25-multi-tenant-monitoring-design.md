@@ -38,11 +38,11 @@ CENTRAL COLLECTOR  (new service)
 ### Supabase (reuses existing auth)
 - `customers` — the customer being tracked.
 - `incidents` — one row per attack episode, linked to the customer.
-- `stats_snapshots` — periodic counters, linked to the customer.
+- `stats_snapshots` — one row per time interval, holding **what happened in that interval only** (flows, malicious, dropped, family breakdown) — not running totals. Linked to the customer. "Last X" = aggregate the rows in that range.
 
 ### Dashboard — monitor page
 - The customer is **selected on the page** (instead of a single hardwired detector address).
-- **Live:** a list of classified flows for that customer (green benign / red attack).
+- **Live:** a list of classified flows for that customer (green benign / red attack), showing verdict + confidence (no per-flow explanation — that's the analyzer's job).
 - **History:** incidents + summary charts for that customer, read from Supabase.
 
 ## Data flow
@@ -50,9 +50,11 @@ CENTRAL COLLECTOR  (new service)
 - **Live:** detector → collector → dashboard. Listed as classified flows; not stored.
 - **History:** collector → Supabase (incidents + summaries). Dashboard reads history from Supabase.
 
-## Removals
+## Removals / detector simplification
 
 - The per-detector SQLite store is removed. The central database is now the only place history lives.
+- **Explainability is removed from the live detector** — no per-flow saliency proxy, no per-episode SHAP, no explainer setup. Live `flow`/`alert` events carry **verdict + family + confidence only** (no `top_features`). This keeps the live path lean and avoids the consumer pause at attack onset.
+- **SHAP explainability stays in the analyzer** (on-demand, latency-tolerant) — that is where "why was this flagged" lives. The live dashboard shows verdict + confidence only.
 
 ## Non-goals
 
