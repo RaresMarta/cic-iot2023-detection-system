@@ -118,9 +118,8 @@ class Detector:
         gate = self.gate_predictor.predict(df)
         gate_label = str(gate['labels'][0])          # 'Benign' | 'Attack'
         gate_conf = float(gate['confidences'][0])
-
         malicious = gate_label != 'Benign'
-        # Only classify family if malicious (skip expensive 8-class inference for benign flows)
+        
         if malicious:
             fam = self.family_predictor.predict(df)
             family = str(fam['labels'][0])
