@@ -6,7 +6,7 @@ Bachelor thesis project: a real-time intrusion detection system for IoT networks
 
 ```
 Frontend (React + Vite)          → Vercel
-Backend  (FastAPI + Gradio)      → HuggingFace Spaces
+Backend  (FastAPI REST)          → HuggingFace Spaces
 Database (Auth + history)        → Supabase (PostgreSQL)
 Experiment tracking              → Weights & Biases
 ```

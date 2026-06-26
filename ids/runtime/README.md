@@ -1,77 +1,48 @@
-# RT-IDS Demo
+# `ids.runtime` — inference layer
 
-Live demo wrapper around the trained CIC-IoT-2023 MLP. Two input modes:
+Runtime components shared by the analyzer REST API (`ids/apps/analyzer`) and the live
+monitor (`ids/apps/monitor`). Turns raw input (pcap or CIC-format CSV) into model verdicts,
+using the **same preprocessing the model was trained with**. This is a library, not an app.
 
-1. **CSV upload** — already in CIC 39-feature format; classified directly.
-2. **PCAP upload** — CICFlowMeter extracts flows first, then the model classifies.
+## Modules
 
-## Setup
+- `extractor.py` — faithful pcap → CIC-IoT-2023 feature extractor. Reproduces the dataset
+  authors' **dpkt** packet-window method (tumbling windows over unordered host pairs — 10
+  packets for most classes, 100 for floods), **not CICFlowMeter**: CICFlowMeter's
+  flow-timeout / Fwd-Bwd feature set mismatches the 25 features the model uses. Entry point:
+  `extract_features(pcap_path, window=10)`.
+- `predictor.py` — inference backends sharing one preprocessing path and output contract, so
+  callers can swap by key:
+  - `MLPClassifier` — the PyTorch MLP, with temperature-scaled (calibrated) confidence.
+  - `RFClassifier` — the RandomForest baseline (`predict_proba`).
+- `explain.py` — `FlowExplainer`: per-flow SHAP attributions (`GradientExplainer`) for the
+  live demo, built once over a small stratified background sample.
+- `validate_extractor.py` — extractor validation. No args → mechanical self-test (synthetic
+  SYN flood + benign HTTPS through extractor+model); with a pcap path → distributional check
+  against real traffic.
 
-```powershell
-pip install -r requirements.txt   # from project root, includes gradio + xgboost
-```
+Models load from `../models/` (`MODELS_DIR`). Run the training notebook end-to-end first so
+the scaler, encoders, and checkpoints exist.
 
-The demo loads whatever models exist in `../models/`. Run the notebook end-to-end first so the models are saved.
+## How it's served
 
-## CICFlowMeter (required for PCAP mode only)
+- **`ids/apps/analyzer/app.py`** — FastAPI REST backend (`POST /api/classify`,
+  `GET /api/health`) consumed by the React frontend. Run: `python -m ids.apps.analyzer.app`
+  (port 7860). This is what deploys to HuggingFace Spaces.
+- **`ids/apps/monitor/`** — the live beside-path NIDS: capture → window → detect → SSE feed.
 
-The Java CICFlowMeter is the canonical implementation. Two options:
+## Live attack scripts (demo loop)
 
-### Option A — Java CICFlowMeter (recommended, matches dataset exactly)
+For the end-to-end demo (trigger attack → captured → classified), attack scripts target a
+controlled local victim — the `website` (mock site) container pinned at `172.30.0.10` on the
+`idsnet` Docker bridge (see `deploy/docker-compose.yml`); the detector sniffs that bridge
+(`ids-br0`). Suggested tools per family:
 
-```powershell
-git clone https://github.com/ahlashkari/CICFlowMeter.git
-cd CICFlowMeter
-.\gradlew.bat installDist
-$env:CICFLOWMETER_HOME = "$PWD\build\install\CICFlowMeter"
-```
-
-The runner auto-detects `$env:CICFLOWMETER_HOME` and invokes the bundled `CICFlowMeter.bat` script.
-
-### Option B — Python `cicflowmeter` (fallback)
-
-```powershell
-pip install cicflowmeter
-```
-
-Less complete than the Java version but no JVM required.
-
-## Run
-
-```powershell
-python -m ids.apps.analyzer.app
-```
-
-Opens at <http://localhost:7860>.
-
-## Public URL for thesis defense
-
-```powershell
-cloudflared tunnel --url http://localhost:7860
-```
-
-Cloudflare prints a temporary public URL valid for the session — paste it in the defense slides.
-
-## Live attack scripts (for the demo loop)
-
-To make the demo end-to-end (user clicks "run attack" → captured → classified), add per-attack scripts under `demo/attacks/` that:
-
-1. Spin up an attack against a controlled local target (a docker container or a VM).
-2. Capture the resulting traffic to a PCAP via `tcpdump` (Linux/WSL) or `tshark`/`dumpcap` (Windows + Npcap).
-3. Hand the PCAP to `cicflowmeter_runner.run_cicflowmeter` and surface results in the UI.
-
-Suggested tools per attack family:
-
-- **DDoS / DoS / Mirai-like floods** — `hping3`, `t50`, `iperf3` UDP storms
-- **Recon** — `nmap` (TCP SYN scan, OS scan), `fping` for ping sweeps
-- **Web** — `curl` scripts with payloads, `sqlmap` (SQL injection), `slowhttptest` (Slowloris)
-- **Spoofing** — `arpspoof` (in WSL with proper interface bridging), `dnschef`
+- **DDoS / DoS / Mirai floods** — `hping3`, `t50`, `iperf3` UDP storms
+- **Recon** — `nmap` (SYN / OS scan), `fping` sweeps
+- **Web** — `curl` payloads, `sqlmap` (SQL injection), `slowhttptest` (Slowloris)
+- **Spoofing** — `arpspoof`, `dnschef`
 - **BruteForce** — `hydra` against a local dummy SSH
 
-These are environment-specific (which interface, which target, what privilege level). They are scaffolding work for thesis defense day, not something a generic script can produce.
-
-## Files
-
-- `inference.py` — model + scaler + encoder loader; `MLPClassifier` class
-- `cicflowmeter_runner.py` — subprocess wrapper, auto-detects Java or Python backend
-- `app.py` — Gradio UI
+These are environment-specific (interface, target, privilege level) — defense-day
+scaffolding, not something a generic script produces.
