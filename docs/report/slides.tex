@@ -1,0 +1,55 @@
+% Defense slides — minimal skeleton (free-speech, figure-only).
+% Build:  pdflatex slides.tex   ->  slides.pdf
+\documentclass[aspectratio=169]{beamer}
+\usetheme{default}
+\beamertemplatenavigationsymbolsempty
+\setbeamertemplate{footline}[frame number]
+\graphicspath{{figures/}}
+
+\newcommand{\figslide}[2]{%
+  \begin{frame}{#1}
+    \centering
+    \includegraphics[width=\linewidth,height=0.82\textheight,keepaspectratio]{#2}
+  \end{frame}}
+
+\title{NEURAL IDS}
+\author{}
+\date{}
+
+\begin{document}
+
+% ---- Dataset & tooling ---------------------------------------------------
+% Placeholders: swap the \textbf{wordmarks} for \includegraphics logos when ready.
+\begin{frame}{The dataset: CIC-IoT-2023}
+  \centering
+  % \includegraphics[height=0.18\textheight]{logo_unb_cic.png}\par\vspace{1em}
+  {\large\textbf{Canadian Institute for Cybersecurity\\ University of New Brunswick \textnormal{(2023)}}}\par
+  \vspace{1.4em}
+  \begin{itemize}
+    \item 46.7M labelled flows · 105 real IoT devices
+    \item 33 attacks across 7 families · smart-home testbed
+    \item 39-feature public CSV — packet-header / flow metadata
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Processing the 46M-row dataset}
+  \centering
+  % \includegraphics[height=0.16\textheight]{logo_polars.png}\hspace{2em}\includegraphics[height=0.16\textheight]{logo_parquet.png}\par\vspace{1em}
+  {\Large\textbf{Polars}\quad+\quad\textbf{Apache Parquet}}\par
+  \vspace{1.4em}
+  \begin{itemize}
+    \item \textbf{Polars} — lazy, multi-threaded columnar dataframes
+    \item \textbf{Apache Parquet} — Zstd-compressed columnar storage
+  \end{itemize}
+\end{frame}
+
+% ---- Feature analysis (EDA) ----------------------------------------------
+\figslide{Feature correlation}{pearson_corr_strong.png}
+\figslide{Feature variance}{flag_variances.png}
+\figslide{Feature separability — Rate by family}{box_rate_by_family.png}
+
+% ---- Results -------------------------------------------------------------
+\figslide{Application-layer attacks collapse}{per_class_f1_8class.png}
+\figslide{Comparable results only}{macro_f1_comparison_8class.png}
+
+\end{document}
