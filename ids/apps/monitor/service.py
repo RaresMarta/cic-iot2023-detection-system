@@ -28,6 +28,7 @@ from .detector import Detector  # noqa: E402
 from .events import Broker  # noqa: E402
 from .store import SqliteSink  # noqa: E402
 from .notifier import NtfyNotifier  # noqa: E402
+from .supabase_sink import SupabaseSink  # noqa: E402
 
 
 def _build_predictor(model_type: str, mode: str):
@@ -72,7 +73,7 @@ async def lifespan(app: FastAPI):
     app.state.inject_queue = inject_queue          # None unless simulate mode
     app.state.mode = producer.mode
     if config.DECISION_MODE == 'single':
-        app.state.model = f'{config.MODEL_SPLIT} single-8class={config.FAMILY_MODEL}'
+        app.state.model = f'{config.MODEL_SPLIT} single-{config.MODEL_MODE_FAMILY}class={config.FAMILY_MODEL}'
     else:
         app.state.model = (f'{config.MODEL_SPLIT} gate={config.GATE_MODEL}-{config.MODEL_MODE_GATE}c '
                            f'family={config.FAMILY_MODEL}-{config.MODEL_MODE_FAMILY}c')
@@ -97,6 +98,20 @@ async def lifespan(app: FastAPI):
         app.state.notifier_task = asyncio.create_task(notifier.run())
         print(f'[service] ntfy notifier enabled: {config.NTFY_URL}', flush=True)
 
+    # Optional Supabase backplane: a broker consumer that registers this worker, broadcasts
+    # live flows over Supabase Realtime, and persists incidents + snapshots to Postgres so a
+    # remote dashboard can consume them. Default-off; never on the detection path.
+    app.state.supabase_task = None
+    if config.SUPABASE_ENABLED and config.SUPABASE_URL and config.SUPABASE_KEY and config.MONITOR_ID:
+        supa = SupabaseSink(
+            config.SUPABASE_URL, config.SUPABASE_KEY, config.MONITOR_ID, config.MONITOR_NAME,
+            broker, owner_id=config.MONITOR_OWNER, public_ip=config.MONITOR_PUBLIC_IP,
+            protected_ips=sorted(config.PROTECTED_IPS), flow_rate=config.SUPABASE_FLOW_RATE,
+            snapshot_s=config.SUPABASE_SNAPSHOT_S)
+        app.state.supabase = supa
+        app.state.supabase_task = asyncio.create_task(supa.run(detector))
+        print(f'[service] supabase backplane enabled: monitor={config.MONITOR_ID}', flush=True)
+
     try:
         yield
     finally:
@@ -104,6 +119,8 @@ async def lifespan(app: FastAPI):
             app.state.store_task.cancel()
         if app.state.notifier_task is not None:
             app.state.notifier_task.cancel()
+        if app.state.supabase_task is not None:
+            app.state.supabase_task.cancel()
         await detector.stop()
 
 

@@ -8,7 +8,7 @@ WORKDIR /app
 RUN pip install --no-cache-dir \
         "torch==2.*" --index-url https://download.pytorch.org/whl/cpu \
     && pip install --no-cache-dir \
-        dpkt fastapi "uvicorn[standard]" polars joblib numpy scikit-learn shap
+        dpkt fastapi "uvicorn[standard]" polars joblib numpy scikit-learn==1.8.0 shap
 
 # Project code + trained artefacts. The monitor needs the whole `ids` package
 # (it reuses ids.runtime / ids.data / ids.core).
@@ -18,5 +18,6 @@ COPY models/ ./models/
 
 ENV PYTHONPATH=/app
 EXPOSE 7870
-# IDS_SOURCE=live (LiveCapture on IDS_IFACE) is set in compose for the VPS.
-CMD ["python", "-m", "ids.apps.monitor", "live", "--iface", "ids-br0"]
+# IDS_SOURCE=live (LiveCapture on IDS_IFACE) is set in compose for the VPS. The interface
+# comes from IDS_IFACE (default ids-br0) — not hardcoded here, so eth0 works via env.
+CMD ["python", "-m", "ids.apps.monitor", "live"]

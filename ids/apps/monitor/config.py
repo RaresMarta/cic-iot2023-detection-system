@@ -85,3 +85,27 @@ DB_SNAPSHOT_S = _env_float('IDS_DB_SNAPSHOT_S', 15.0)
 NTFY_ENABLED = _env_str('IDS_NTFY_ENABLED', 'false').lower() == 'true'
 NTFY_URL = _env_str('IDS_NTFY_URL', '')
 NTFY_ON_RECOVER = _env_str('IDS_NTFY_ON_RECOVER', 'true').lower() == 'true'
+
+# Supabase backplane: a broker consumer that registers this worker as a "monitor",
+# broadcasts live flows over Supabase Realtime (ephemeral, never stored), and persists
+# incidents + periodic snapshots to Postgres. Opt-in and default-off; never on the
+# detection path (see supabase_sink.py). Multi-tenant = one worker per environment, each
+# with its own stable MONITOR_ID, all writing to one shared Supabase project. The KEY is a
+# service_role key kept server-side on the worker (it bypasses row-level security).
+SUPABASE_ENABLED = _env_str('IDS_SUPABASE_ENABLED', 'false').lower() == 'true'
+SUPABASE_URL = _env_str('IDS_SUPABASE_URL', '').rstrip('/')
+SUPABASE_KEY = _env_str('IDS_SUPABASE_KEY', '')
+# Stable per-worker identity. MONITOR_ID is the upsert key in the monitors table; NAME is
+# the human label shown in the dashboard picker; PUBLIC_IP is informational.
+MONITOR_ID = _env_str('IDS_MONITOR_ID', '')
+MONITOR_NAME = _env_str('IDS_MONITOR_NAME', '')
+MONITOR_PUBLIC_IP = _env_str('IDS_MONITOR_PUBLIC_IP', '')
+# Dashboard user (auth.users uuid) this monitor belongs to. The worker sets monitors.owner_id
+# so row-level security shows the monitor only to that user. Empty -> owner_id null (the
+# monitor exists but no user sees it under RLS until claimed).
+MONITOR_OWNER = _env_str('IDS_MONITOR_OWNER', '')
+# Max flows/sec broadcast to the dashboard feed. The feed is a sample for the eye; the
+# aggregate counters remain truthful. Excess flows are dropped from the display only.
+SUPABASE_FLOW_RATE = _env_float('IDS_SUPABASE_FLOW_RATE', 25.0)
+# Snapshot cadence reuses the event-store interval so both sinks agree.
+SUPABASE_SNAPSHOT_S = _env_float('IDS_SUPABASE_SNAPSHOT_S', DB_SNAPSHOT_S)
