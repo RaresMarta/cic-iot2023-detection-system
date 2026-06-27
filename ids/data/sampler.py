@@ -18,10 +18,8 @@ import polars as pl
 from ids.core.config import PARQUET_PATH, MODELS_DIR
 from ids.core.labels import DICT_8CLASSES
 
-# Families the demo exposes (reliably detectable from flow statistics).
 GREEN_FAMILIES: list[str] = ['Benign', 'DDoS', 'DoS', 'Mirai', 'Recon']
 
-# raw 34-class label -> family, restricted to the green families
 _RAW_BY_FAMILY: dict[str, list[str]] = {}
 for _raw, _fam in DICT_8CLASSES.items():
     if _fam in GREEN_FAMILIES:

@@ -26,18 +26,16 @@ class Tracker:
         self._wandb = None
         self.run = None
         if enabled:
-            import wandb  # imported lazily so the package works without wandb
+            import wandb
             self._wandb = wandb
             self.run = wandb.init(project=project, name=name, job_type='train')
 
-    # ---- per-epoch curves (MLP) ----
     def log_history(self, split: str, mode: str, model: str, history: dict) -> None:
         if not self.enabled:
             return
         try:
             ns = f'{model}/{split}/{mode}class'
             step_key = f'{ns}/epoch'
-            # custom x-axis per namespace so each model's curves get their own epoch axis
             self.run.define_metric(step_key)
             self.run.define_metric(f'{ns}/*', step_metric=step_key)
             for i in range(len(history.get('val_loss', []))):
@@ -48,10 +46,9 @@ class Tracker:
                 if history.get('val_macro_f1'):
                     row[f'{ns}/val_macro_f1'] = history['val_macro_f1'][i]
                 self.run.log(row)
-        except Exception as e:  # never let logging crash training
+        except Exception as e:
             print(f'  [wandb] log_history skipped for {model}/{split}/{mode}: {e}')
 
-    # ---- per-model evaluation ----
     def log_eval(self, split: str, mode: str, model: str, class_names: list,
                  y_true, y_pred, y_score=None) -> None:
         if not self.enabled:
@@ -81,16 +78,14 @@ class Tracker:
                                                      title=f'{ns} — per-class F1'),
             })
 
-            # one-vs-rest PR curves — the imbalance-appropriate ranking view
             if y_score is not None:
                 y_score = np.asarray(y_score)
                 if y_score.ndim == 2 and y_score.shape[1] == len(class_names):
                     self.run.log({f'{ns}/pr_curve': wandb.plot.pr_curve(
                         y_true, y_score, labels=class_names)})
-        except Exception as e:  # never let logging crash training
+        except Exception as e:
             print(f'  [wandb] log_eval skipped for {model}/{split}/{mode}: {e}')
 
-    # ---- final MLP-vs-RF comparison ----
     def log_comparison(self, results_all: dict, modes) -> None:
         if not self.enabled:
             return
@@ -112,7 +107,7 @@ class Tracker:
                 'comparison/weighted_f1': wandb.plot.bar(tbl, 'run', 'weighted_f1',
                                                          title='Weighted-F1 by model/split/mode'),
             })
-        except Exception as e:  # never let logging crash training
+        except Exception as e:
             print(f'  [wandb] log_comparison skipped: {e}')
 
     def finish(self) -> None:

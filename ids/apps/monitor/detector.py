@@ -27,7 +27,7 @@ from .events import Broker
 from .producers import WindowProducer
 from .windower import WindowResult
 
-torch.set_num_threads(1)   # the model is tiny; threading hurts more than helps
+torch.set_num_threads(1)
 
 
 def attacker_ip(ip_a: str, ip_b: str, protected: set[str]) -> str | None:
@@ -37,24 +37,23 @@ def attacker_ip(ip_a: str, ip_b: str, protected: set[str]) -> str | None:
         return ip_b
     if b_prot and not a_prot:
         return ip_a
-    return None  # neither or both protected -> can't attribute the source
+    return None
 
 
 class Detector:
     def __init__(self, producer: WindowProducer, gate_predictor, family_predictor,
                  broker: Broker, explainer=None):
         self.producer = producer
-        self.gate_predictor = gate_predictor       # 2-class Benign/Attack (alert trigger)
-        self.family_predictor = family_predictor   # 8-class family (label/visual)
+        self.gate_predictor = gate_predictor
+        self.family_predictor = family_predictor
         self.broker = broker
-        self.explainer = explainer                 # optional gate SHAP; proxy fallback
+        self.explainer = explainer
         self._q: queue.Queue = queue.Queue(maxsize=config.QUEUE_MAXSIZE)
         self._stop = threading.Event()
         self._capture_thread: threading.Thread | None = None
         self._tasks: list[asyncio.Task] = []
         self._flow_id = 0
         self._started_at = time.time()
-        # active attackers: ip -> {last_malicious, family}
         self._active: dict[str, dict] = {}
         self.stats = {
             'flows_total': 0,
@@ -63,7 +62,6 @@ class Detector:
             'malicious': 0,
         }
 
-    # ── lifecycle ────────────────────────────────────────────────────────────
     async def start(self) -> None:
         self._capture_thread = threading.Thread(target=self._produce_loop, daemon=True)
         self._capture_thread.start()
@@ -75,23 +73,22 @@ class Detector:
     async def stop(self) -> None:
         self._stop.set()
         self.producer.close()
-        self._q.put(None)            # unblock the consumer
+        self._q.put(None)
         for t in self._tasks:
             t.cancel()
 
-    # ── capture thread: producer emits WindowResults onto the bounded queue ────
     def _produce_loop(self) -> None:
         try:
             self.producer.run(self._enqueue, self._stop)
         finally:
-            self._q.put(None)                               # signal end-of-stream
+            self._q.put(None)
 
     def _enqueue(self, wr: WindowResult) -> None:
         try:
             self._q.put_nowait(wr)
         except queue.Full:
             try:
-                self._q.get_nowait()                        # drop oldest
+                self._q.get_nowait()
                 self.stats['dropped'] += 1
             except queue.Empty:
                 pass
@@ -100,26 +97,24 @@ class Detector:
             except queue.Full:
                 pass
 
-    # ── async consumer (classify + decide + publish) ───────────────────────────
     async def _consume(self) -> None:
         loop = asyncio.get_running_loop()
         while not self._stop.is_set():
             wr = await loop.run_in_executor(None, self._q.get)
-            if wr is None:                                  # end-of-stream sentinel
+            if wr is None:
                 break
             try:
                 await self._handle(wr, loop)
-            except Exception as e:                          # never die on one window
+            except Exception as e:
                 print(f'[detector] handle error: {e}', flush=True)
 
     async def _handle(self, wr: WindowResult, loop) -> None:
         df = pl.DataFrame([wr.features]).select(self.family_predictor.x_columns)
-        # 2-class gate drives the decision; 8-class gives the family label/probabilities.
         gate = self.gate_predictor.predict(df)
-        gate_label = str(gate['labels'][0])          # 'Benign' | 'Attack'
+        gate_label = str(gate['labels'][0])
         gate_conf = float(gate['confidences'][0])
         malicious = gate_label != 'Benign'
-        
+
         if malicious:
             fam = self.family_predictor.predict(df)
             family = str(fam['labels'][0])
@@ -158,10 +153,8 @@ class Detector:
 
         if malicious and atk is not None:
             state = self._active.get(atk)
-            if state is None:                               # first malicious window
+            if state is None:
                 self._active[atk] = {'last_malicious': now, 'family': family}
-                # One real SHAP attribution per attack episode (here, not per window);
-                # runs off the event loop and falls back to the per-window proxy.
                 reasons = await loop.run_in_executor(None, self._shap_gate, df, wr.features)
                 if not reasons:
                     reasons = self._explain(wr.features, probs)
@@ -172,7 +165,6 @@ class Detector:
                 state['last_malicious'] = now
                 state['family'] = family
 
-    # ── lifecycle: emit "recovered" when an attacker goes quiet ────────────────
     async def _lifecycle_loop(self) -> None:
         try:
             while not self._stop.is_set():
@@ -185,7 +177,6 @@ class Detector:
         except asyncio.CancelledError:
             pass
 
-    # ── per-alert SHAP attribution for the gate's Attack verdict ───────────────
     def _shap_gate(self, df: pl.DataFrame, features: dict, top_k: int = 6) -> list[dict] | None:
         """Real SHAP for why the 2-class gate flagged this source. Runs once per
         attack episode (in the consumer's executor); None on any failure."""
@@ -202,9 +193,7 @@ class Detector:
             print(f'[detector] gate SHAP skipped: {e}', flush=True)
             return None
 
-    # ── cheap per-window saliency proxy (every flow); SHAP runs per alert ──────
     def _explain(self, features: dict, probs: dict, top_k: int = 5) -> list[dict]:
-        # |scaled value| as a quick saliency proxy; ranks which features stood out.
         try:
             scaled = self.family_predictor.preprocess(
                 pl.DataFrame([features]).select(self.family_predictor.x_columns))[0]
@@ -214,7 +203,6 @@ class Detector:
         except Exception:
             return []
 
-    # ── read-only views for the API ───────────────────────────────────────────
     def snapshot_stats(self) -> dict:
         return {
             'flows_total': self.stats['flows_total'],

@@ -65,18 +65,11 @@ from ids.core.config import MODELS_DIR
 from ids.runtime.extractor import extract_features as _extract_one
 from ids.runtime.predictor import MLPClassifier, RFClassifier
 
-# Binary vocabulary used everywhere downstream.
 BENIGN, ATTACK = 'benign', 'attack'
 
-# Packet-window size. The CIC-IoT-2023 authors used 10 for non-flood classes and
-# 100 for flood classes; cross-dataset we don't know the class a-priori, so we
-# default to 10 (the dataset default) and expose it on the CLI.
 DEFAULT_WINDOW = 10
 
 
-# ---------------------------------------------------------------------------
-# Feature extraction
-# ---------------------------------------------------------------------------
 def model_feature_columns() -> list[str]:
     """The exact 25 feature columns (names + order) the frozen model expects."""
     return list(joblib.load(MODELS_DIR / 'feature_columns.joblib'))
@@ -133,7 +126,6 @@ def check_feature_parity(df: pl.DataFrame, *, raise_on_mismatch: bool = True) ->
     exact = actual == expected
     missing = [c for c in expected if c not in actual]
     extra = [c for c in actual if c not in expected]
-    # order mismatch only meaningful when the sets agree
     order_ok = (set(actual) == set(expected)) and exact
 
     report = {
@@ -163,9 +155,6 @@ def check_feature_parity(df: pl.DataFrame, *, raise_on_mismatch: bool = True) ->
     return report
 
 
-# ---------------------------------------------------------------------------
-# Prediction
-# ---------------------------------------------------------------------------
 _PREDICTORS = {
     'rf':  lambda: RFClassifier(MODELS_DIR, kind='rf', split='random', mode='2'),
     'mlp': lambda: MLPClassifier(MODELS_DIR, split='random', mode='2'),
@@ -177,7 +166,6 @@ def _attack_index(class_names: list[str]) -> int:
     lowered = [str(c).strip().lower() for c in class_names]
     if ATTACK in lowered:
         return lowered.index(ATTACK)
-    # fall back: the non-benign column is the attack column (2-class only)
     if BENIGN in lowered and len(lowered) == 2:
         return 1 - lowered.index(BENIGN)
     raise ValueError(f'Cannot locate attack class in encoder classes: {class_names}')
@@ -202,23 +190,18 @@ def predict(features_df: pl.DataFrame, model: str = 'rf') -> tuple[np.ndarray, n
     if model not in _PREDICTORS:
         raise ValueError(f"model must be one of {list(_PREDICTORS)}, got {model!r}")
 
-    # Hard correctness gate before any inference.
     check_feature_parity(features_df, raise_on_mismatch=True)
 
     clf = _PREDICTORS[model]()
-    out = clf.predict(features_df)          # dict: labels, probabilities, class_names
+    out = clf.predict(features_df)
     ai = _attack_index(out['class_names'])
     scores = np.asarray(out['probabilities'], dtype=float)[:, ai]
-    # Normalise the model's raw label strings ('Attack'/'Benign') to binary vocab.
     labels = np.array(
         [ATTACK if str(l).strip().lower() == ATTACK else BENIGN for l in out['labels']]
     )
     return labels, scores
 
 
-# ---------------------------------------------------------------------------
-# Evaluation
-# ---------------------------------------------------------------------------
 def _to_binary_int(arr) -> np.ndarray:
     """Map a sequence of {'benign','attack'} (or 0/1) to int {0=benign, 1=attack}."""
     out = np.empty(len(arr), dtype=int)
@@ -251,7 +234,7 @@ def evaluate(pred_labels, true_labels, scores) -> dict:
         raise ValueError(
             f'length mismatch: pred={len(y_pred)} true={len(y_true)} scores={len(s)}')
 
-    cm = confusion_matrix(y_true, y_pred, labels=[0, 1])  # 0=benign, 1=attack
+    cm = confusion_matrix(y_true, y_pred, labels=[0, 1])
 
     metrics = {
         'recall':    float(recall_score(y_true, y_pred, pos_label=1, zero_division=0)),
@@ -264,12 +247,9 @@ def evaluate(pred_labels, true_labels, scores) -> dict:
         'n': int(len(y_true)),
     }
 
-    # PR curve over swept thresholds — only meaningful if both classes present.
     if len(np.unique(y_true)) == 2:
         prec, rec, thr = precision_recall_curve(y_true, s, pos_label=1)
         metrics['pr_curve'] = {
-            # precision_recall_curve returns len(thr)+1 points for prec/rec; the
-            # last point (recall=0) has no threshold. Keep them aligned by padding.
             'precision': prec.tolist(),
             'recall': rec.tolist(),
             'thresholds': thr.tolist(),
@@ -283,9 +263,6 @@ def evaluate(pred_labels, true_labels, scores) -> dict:
     return metrics
 
 
-# ---------------------------------------------------------------------------
-# CLI
-# ---------------------------------------------------------------------------
 def _load_true_labels(labels_csv: Path, dataset: str, n_windows: int) -> np.ndarray:
     from ids.eval.label_maps import to_binary
     ldf = pl.read_csv(labels_csv)

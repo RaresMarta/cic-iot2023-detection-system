@@ -27,7 +27,7 @@ class Broker:
                 q.put_nowait(event)
             except asyncio.QueueFull:
                 try:
-                    q.get_nowait()          # drop this client's oldest
+                    q.get_nowait()
                 except asyncio.QueueEmpty:
                     pass
                 try:

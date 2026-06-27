@@ -84,7 +84,6 @@ def run_training(splits=('random',), modes=('2', '8'),
 
             cw = balanced_class_weights(y_tr, K)
 
-            # ---- MLP ----
             print('  [MLP] training...')
             model, history = train_mlp(X_train, y_tr, X_val, y_va, K, cw,
                                        artifacts.weights_path(split, mode), mode)
@@ -110,7 +109,6 @@ def run_training(splits=('random',), modes=('2', '8'),
                              evals['test']['y_true'], evals['test']['y_pred'],
                              _softmax(test_logits))
 
-            # ---- Random Forest ----
             print('  [RF] training...')
             rf = train_rf(X_train, y_tr, mode)
             models_mem[(split, mode, 'rf')] = rf
@@ -127,7 +125,6 @@ def run_training(splits=('random',), modes=('2', '8'),
             if mode == '8':
                 trees_for_importance = (rf, X_test, y_te)
 
-        # ---- Permutation importance (8-class) ----
         if trees_for_importance is not None:
             print('  permutation importance (8-class)...')
             rf8, Xte8, yte8 = trees_for_importance
@@ -136,7 +133,6 @@ def run_training(splits=('random',), modes=('2', '8'),
             RESULTS['perm_importance_8'] = perm
             artifacts.save_perm_importance(perm)
 
-        # ---- Calibration (serving artifact written for the first split) ----
         calib = run_calibration(split, modes,
                                 write_artifact=(split == splits[0]))
         RESULTS['calibration'] = calib

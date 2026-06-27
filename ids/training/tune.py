@@ -24,9 +24,6 @@ from ids.core.config import N_FEATURES, HPARAMS_PATH
 from ids.core.models import IDSDataset, IDSModel, train_model, evaluate
 from ids.data.preprocessing import fit_preprocess
 
-# Serialized-forest size guard: depth is searched up to ~40 on a 100k subsample,
-# but the final RF trains on the full ~3.1M-row set where deep trees blow up the
-# on-disk model (>1 GB). Capped here so hparams.json stores the value actually used.
 RF_MAX_DEPTH_CAP = 25
 
 
@@ -143,7 +140,7 @@ def run_hpo(
         model, _ = train_model(
             model, train_loader, val_loader, weights_t,
             tune_epochs, 5, lr, device,
-            optimizer_name=opt_name, trial=None,  # F1 objective: no val_loss pruning
+            optimizer_name=opt_name, trial=None,
         )
         return evaluate(model, val_loader, list(le.classes_), device)["macro_f1"]
 
@@ -221,7 +218,6 @@ def run_hpo_rf(
             class_weight="balanced", n_jobs=-1, random_state=seed,
         )
         rf.fit(X_tr, y_tr_enc)
-        # study runs sequentially (n_jobs=1); each RF already saturates all cores
         return f1_score(y_va_enc, rf.predict(X_va), average="macro")
 
     study = optuna.create_study(

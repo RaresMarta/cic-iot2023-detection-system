@@ -47,13 +47,16 @@ def _packet_record(ts: float, buf: bytes):
         eth = dpkt.ethernet.Ethernet(buf)
     except Exception:
         return None
+
     ip = eth.data
     is_v6 = isinstance(ip, dpkt.ip6.IP6)
     if not isinstance(ip, dpkt.ip.IP) and not is_v6:
         return None
+
     proto = ip.nxt if is_v6 else ip.p
     ttl = ip.hlim if is_v6 else ip.ttl
     ip_hdr = 40 if is_v6 else ip.hl * 4
+
     rec = {
         'ts': ts, 'len': len(buf), 'ttl': ttl, 'proto': proto,
         'src': bytes(ip.src), 'dst': bytes(ip.dst),
@@ -61,6 +64,7 @@ def _packet_record(ts: float, buf: bytes):
         'flags': {k: 0 for k in _TCP_FLAGS}, 'hdr': ip_hdr,
     }
     l4 = ip.data
+
     if isinstance(l4, dpkt.tcp.TCP):
         rec['tcp'] = 1; rec['sport'] = l4.sport; rec['dport'] = l4.dport
         rec['hdr'] = ip_hdr + l4.off * 4

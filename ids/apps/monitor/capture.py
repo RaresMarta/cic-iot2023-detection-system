@@ -17,10 +17,8 @@ from collections.abc import Iterator
 from pathlib import Path
 
 
-from ids.runtime.extractor import _iter_packets  # noqa: E402
+from ids.runtime.extractor import _iter_packets
 
-# Sentinel yielded by LiveCapture on a recv timeout so the consumer can flush idle
-# windows even when no packet arrived. ts is None for this marker.
 IDLE_TICK: tuple[None, None] = (None, None)
 
 
@@ -55,7 +53,6 @@ class PcapReplay(PacketSource):
                 if self.realtime:
                     if file_start is None:
                         file_start = ts
-                    # pace to the capture's own inter-arrival timing
                     target = wall_start + (ts - file_start)
                     delay = target - time.time()
                     if delay > 0:
@@ -80,8 +77,6 @@ class LiveCapture(PacketSource):
         import time
         ETH_P_ALL = 0x0003
         sock = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.htons(ETH_P_ALL))  # type: ignore[attr-defined]
-        # The bridge interface may appear a moment after the container starts
-        # (docker creates idsnet/ids-br0 around the same time). Retry the bind.
         deadline = time.time() + 30
         while True:
             try:
@@ -94,14 +89,9 @@ class LiveCapture(PacketSource):
                 print(f'[capture] waiting for interface {self.iface!r}…', flush=True)
                 time.sleep(1.0)
 
-        # Binding alone only delivers frames addressed to this interface. On a Linux
-        # bridge the attacker<->website flood is *forwarded* between veth ports, so a
-        # non-promiscuous socket on the bridge master never sees it (just like a raw
-        # bind without `tcpdump -p`). Enable promiscuous mode (needs CAP_NET_ADMIN)
-        # so we capture every frame the bridge processes, not only host-addressed ones.
         try:
             import struct
-            SOL_PACKET = getattr(socket, 'SOL_PACKET', 263)   # Linux value; not always exposed
+            SOL_PACKET = getattr(socket, 'SOL_PACKET', 263)
             PACKET_ADD_MEMBERSHIP, PACKET_MR_PROMISC = 1, 1
             ifindex = socket.if_nametoindex(self.iface)
             mreq = struct.pack('iHH8s', ifindex, PACKET_MR_PROMISC, 0, b'')
@@ -122,7 +112,7 @@ class LiveCapture(PacketSource):
             try:
                 buf = self._sock.recv(self.snaplen)  # type: ignore[union-attr]
             except socket.timeout:
-                yield IDLE_TICK         # let the consumer flush idle windows
+                yield IDLE_TICK
                 continue
             except OSError:
                 break

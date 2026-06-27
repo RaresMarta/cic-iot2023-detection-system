@@ -31,7 +31,6 @@ class _BasePredictor:
         flags = set(CONFIG_FLAG_COLUMNS)
         self.log_columns = [c for c in self.x_columns if c not in flags]
 
-        # Load the consolidated Preprocessor; fall back to scaler for backward compatibility
         prep_path = self.models_dir / f'preprocessor_{split}.joblib'
         if prep_path.exists():
             self.preprocessor = joblib.load(prep_path)
@@ -82,9 +81,6 @@ class MLPClassifier(_BasePredictor):
         self.device = torch.device(device)
         n_classes = len(self.encoder.classes_)
 
-        # Build the model to match the checkpoint's architecture rather than the
-        # constructor default, so serving is immune to train-side arch changes
-        # (e.g. tuned hidden_sizes) without needing to read hparams.json.
         state = torch.load(self.models_dir / f'ids_dnn_{split}_{mode}class.pth',
                            map_location=self.device, weights_only=True)
         hidden_sizes = IDSModel.infer_hidden_sizes(state)
@@ -93,8 +89,6 @@ class MLPClassifier(_BasePredictor):
         self.model.load_state_dict(state)
         self.model.eval()
 
-        # Optional temperature scaling for calibrated confidence (Guo et al. 2017).
-        # Falls back to T=1.0 (no-op) if the calibration artefact is absent.
         self.temperature = 1.0
         temp_path = self.models_dir / 'temperature_scaling.joblib'
         if temp_path.exists():
@@ -123,8 +117,6 @@ class RFClassifier(_BasePredictor):
         X = self.preprocess(df)
         raw = np.asarray(self.model.predict_proba(X), dtype=np.float32)
 
-        # predict_proba columns follow the model's own class order; remap to the full
-        # encoder class width in case a class was absent from the training fold.
         K = len(self.encoder.classes_)
         if raw.shape[1] == K:
             probs = raw

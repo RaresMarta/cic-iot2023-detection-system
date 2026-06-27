@@ -57,7 +57,7 @@ class PacketWindowProducer(WindowProducer):
                 if stop.is_set():
                     break
                 ts, buf = item
-                if (ts, buf) == IDLE_TICK:                  # live recv timeout
+                if (ts, buf) == IDLE_TICK:
                     for wr in self.windower.flush_idle(time.time()):
                         emit(wr)
                     continue
@@ -86,9 +86,6 @@ class SampledWindowProducer(WindowProducer):
         self.idle_interval = idle_interval
         self.burst_interval = burst_interval
         self._rng = random.Random(1234)
-        # Stable source IP per attack family, so an injected burst comes from one
-        # attacker and consecutive malicious windows sustain that source's alert
-        # (mirrors a real single-source attack). Assigned lazily on first use.
         self._attacker_ip: dict[str, str] = {}
 
     def _endpoints(self, family: str) -> tuple[str, str]:

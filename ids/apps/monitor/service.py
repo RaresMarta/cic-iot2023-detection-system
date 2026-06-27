@@ -21,12 +21,12 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 
-from ids.runtime.predictor import MLPClassifier, RFClassifier  # noqa: E402
+from ids.runtime.predictor import MLPClassifier, RFClassifier
 
-from . import config, producers  # noqa: E402
-from .detector import Detector  # noqa: E402
-from .events import Broker  # noqa: E402
-from .supabase_sink import SupabaseSink  # noqa: E402
+from . import config, producers
+from .detector import Detector
+from .events import Broker
+from .supabase_sink import SupabaseSink
 
 
 def _build_predictor(model_type: str, mode: str):
@@ -63,7 +63,7 @@ async def lifespan(app: FastAPI):
     detector = Detector(producer, gate_predictor, family_predictor, broker, explainer)
     app.state.detector = detector
     app.state.broker = broker
-    app.state.inject_queue = inject_queue          # None unless simulate mode
+    app.state.inject_queue = inject_queue
     app.state.mode = producer.mode
 
     if config.DECISION_MODE == 'single':
@@ -143,7 +143,6 @@ async def stream():
     async def gen():
         q = broker.subscribe()
         try:
-            # initial comment keeps some proxies from buffering the stream open
             yield ': connected\n\n'
             while True:
                 try:

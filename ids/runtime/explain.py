@@ -22,13 +22,9 @@ class FlowExplainer:
         self.feature_names: list[str] = list(predictor.x_columns)
         self.class_names: list[str] = list(predictor.encoder.classes_)
 
-        # Stratified background across the green families the demo uses.
         per = max(1, background_size // len(sampler.families))
         frames = [sampler.sample_flows(f, n=per, seed=seed) for f in sampler.families]
         bg_scaled = predictor.preprocess(pl.concat(frames)).astype(np.float32)
-        # GradientExplainer wraps a torch model, so the background must be a torch
-        # tensor on the model's device — passing numpy makes the model's first
-        # linear layer reject the input ("must be Tensor, not numpy.ndarray").
         bg_tensor = torch.from_numpy(bg_scaled).to(predictor.device)
 
         predictor.model.eval()
@@ -39,12 +35,12 @@ class FlowExplainer:
         vector for the given class."""
         n = len(self.feature_names)
         sv = shap_values
-        if isinstance(sv, list):                 # list[n_classes] of [1, n_features]
+        if isinstance(sv, list):
             return np.asarray(sv[class_idx]).reshape(-1)[:n]
         sv = np.asarray(sv)
-        if sv.ndim == 3:                         # [1, n_features, n_classes]
+        if sv.ndim == 3:
             return sv[0, :, class_idx]
-        if sv.ndim == 2:                         # [1, n_features]
+        if sv.ndim == 2:
             return sv[0]
 
         return sv.reshape(-1)[:n]

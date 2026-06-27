@@ -5,21 +5,15 @@ from pathlib import Path
 import numpy as np
 import torch
 
-# Paths — anchored to the repo root (this file is ids/core/config.py), so they
-# resolve the same regardless of the current working directory.
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DATASET_DIRECTORY = PROJECT_ROOT / 'data' / 'CSV'
 PARQUET_PATH = PROJECT_ROOT / 'data' / 'cic_iot_2023.parquet'
 MODELS_DIR = PROJECT_ROOT / 'models'
 MODELS_DIR.mkdir(exist_ok=True)
-# Single source of truth for tuned model hyperparameters, shared by training and
-# serving. Written only by ``ids.training.tune`` (see load_hparams below).
 HPARAMS_PATH = PROJECT_ROOT / 'hparams.json'
 
-# Data
 MAX_ROWS_PER_CLASS = 200_000
 
-# 39-feature public CICIoT2023 column set
 X_COLUMNS = [
     'Header_Length', 'Protocol Type', 'Time_To_Live', 'Rate',
     'fin_flag_number', 'syn_flag_number', 'rst_flag_number',
@@ -41,7 +35,6 @@ FLAG_COLUMNS = [
 ]
 LOG_COLUMNS = [c for c in X_COLUMNS if c not in FLAG_COLUMNS]
 
-# Feature selection (39 -> 25), justified by the notebook's EDA
 DROPPED_REDUNDANT = [
     'Tot size',
     'Variance',
@@ -65,25 +58,21 @@ DROPPED_FEATURES = set(DROPPED_REDUNDANT + DROPPED_LOW_VAR)
 X_COLUMNS_SELECTED = [c for c in X_COLUMNS if c not in DROPPED_FEATURES]
 FLAG_COLUMNS_SELECTED = [c for c in FLAG_COLUMNS if c not in DROPPED_FEATURES]
 LOG_COLUMNS_SELECTED = [c for c in X_COLUMNS_SELECTED if c not in FLAG_COLUMNS_SELECTED]
-N_FEATURES_SELECTED = len(X_COLUMNS_SELECTED)  # 25
+N_FEATURES_SELECTED = len(X_COLUMNS_SELECTED)
 
-# Tasks & splits
 MODES_TO_RUN = ['2', '8']
-SPLITS_TO_RUN = ['random']  # random/stratified only; temporal & per_csv dropped (one capture/session per attack folder, no session/time metadata)
+SPLITS_TO_RUN = ['random']
 
-# Training
 BATCH_SIZE = 4096
 N_EPOCHS = 50
 PATIENCE = 5
 LR = 1e-3
 SEED = 42
 
-# Benchmarking
 BATCH_SIZES = [1, 32, 256, 1024]
 N_WARMUP = 100
 N_RUNS = 1000
 
-# RNG initialization
 torch.manual_seed(SEED)
 torch.cuda.manual_seed_all(SEED)
 torch.backends.cudnn.deterministic = True

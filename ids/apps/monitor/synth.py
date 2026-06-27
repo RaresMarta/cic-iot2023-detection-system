@@ -17,9 +17,9 @@ from pathlib import Path
 
 import dpkt
 
-HOST = '172.30.0.10'          # protected mock website
-CLIENT = '172.30.0.50'        # a benign client
-ATTACKER = '172.30.0.66'      # a single attacker
+HOST = '172.30.0.10'
+CLIENT = '172.30.0.50'
+ATTACKER = '172.30.0.66'
 MAC_A = b'\x02\x00\x00\x00\x00\x01'
 MAC_B = b'\x02\x00\x00\x00\x00\x02'
 
@@ -45,22 +45,22 @@ def _udp(sport: int, dport: int, payload: bytes = b'') -> dpkt.udp.UDP:
 def gen_benign(n: int = 40) -> list[tuple[float, bytes]]:
     out, t = [], 1_000_000.0
     for i in range(n):
-        if i % 2 == 0:  # client -> server (PSH/ACK with a payload)
+        if i % 2 == 0:
             l4 = _tcp(51000 + i, 443, dpkt.tcp.TH_PUSH | dpkt.tcp.TH_ACK, b'x' * 400)
             out.append((t, _eth(CLIENT, HOST, l4, MAC_A, MAC_B)))
-        else:           # server -> client (ACK with a larger payload)
+        else:
             l4 = _tcp(443, 51000 + i - 1, dpkt.tcp.TH_ACK, b'y' * 800)
             out.append((t, _eth(HOST, CLIENT, l4, MAC_B, MAC_A)))
-        t += 0.02       # ~50 pps, realistic spacing
+        t += 0.02
     return out
 
 
 def gen_synflood(n: int = 200, attacker: str = ATTACKER) -> list[tuple[float, bytes]]:
     out, t = [], 2_000_000.0
     for i in range(n):
-        l4 = _tcp(40000 + (i % 1000), 80, dpkt.tcp.TH_SYN)   # bare SYN, no payload
+        l4 = _tcp(40000 + (i % 1000), 80, dpkt.tcp.TH_SYN)
         out.append((t, _eth(attacker, HOST, l4, MAC_A, MAC_B)))
-        t += 0.00005    # ~20k pps flood, near-zero IAT
+        t += 0.00005
     return out
 
 
@@ -76,9 +76,9 @@ def gen_udpflood(n: int = 200, attacker: str = ATTACKER) -> list[tuple[float, by
 def gen_scan(n: int = 120, attacker: str = ATTACKER) -> list[tuple[float, bytes]]:
     out, t = [], 4_000_000.0
     for i in range(n):
-        l4 = _tcp(45000, 1 + i, dpkt.tcp.TH_SYN)             # sweep dest ports
+        l4 = _tcp(45000, 1 + i, dpkt.tcp.TH_SYN)
         out.append((t, _eth(attacker, HOST, l4, MAC_A, MAC_B)))
-        t += 0.002      # slower, methodical probing
+        t += 0.002
     return out
 
 

@@ -62,13 +62,6 @@ if not PREDICTORS:
     )
 
 
-# ── SHAP explainability (offline path only) ──────────────────────────────────
-# The upload classify path is latency-tolerant, so it can afford a real SHAP
-# explanation. The explainer is built once at startup over the 8-class predictor
-# (the model the upload UI uses); it stays None if that model or `shap` is absent,
-# in which case classification still works — it just omits `top_features`.
-# NOTE: the live :7870 path keeps its cheap |scaled-value| saliency proxy on
-# purpose (SHAP is too slow per captured window) — do not wire SHAP there.
 EXPLAIN_KEY = 'mlp/random/8'
 EXPLAINER = None
 if EXPLAIN_KEY in PREDICTORS:
@@ -76,14 +69,14 @@ if EXPLAIN_KEY in PREDICTORS:
         from ids.runtime.explain import FlowExplainer
         from ids.data.sampler import FlowSampler
         EXPLAINER = FlowExplainer(PREDICTORS[EXPLAIN_KEY], FlowSampler())
-    except Exception as e:                       # missing shap / sampler data / build error
+    except Exception as e:
         print(f'[app] SHAP explainer unavailable, classify will omit top_features: {e}', flush=True)
         EXPLAINER = None
 
 
 def _aggregate(pred: dict) -> dict:
     """Aggregate per-flow predictions into a single result."""
-    probs    = pred['probabilities']          # (n_flows, n_classes)
+    probs    = pred['probabilities']
     mean_p   = probs.mean(axis=0)
     top_idx  = mean_p.argmax()
     top_label = pred['class_names'][top_idx]
@@ -111,17 +104,16 @@ def _explain_dominant(predictor, predictor_key: str, df: pl.DataFrame, pred: dic
     try:
         class_names = pred['class_names']
         top_idx = class_names.index(top_label)
-        probs = np.asarray(pred['probabilities'])                 # (n_flows, n_classes)
-        rep = int(probs[:, top_idx].argmax())                     # most representative flow
+        probs = np.asarray(pred['probabilities'])
+        rep = int(probs[:, top_idx].argmax())
         x_scaled = predictor.preprocess(df)[rep]
         reasons = EXPLAINER.explain(x_scaled, df.row(rep, named=True), top_idx, top_k=top_k)
         return [{'feature': r['feature'], 'contribution': r['shap']} for r in reasons]
-    except Exception as e:                                         # never fail the classification
+    except Exception as e:
         print(f'[app] SHAP explanation skipped: {e}', flush=True)
         return None
 
 
-# ── FastAPI app ────────────────────────────────────────────────────────────
 api = FastAPI(title='RT-IDS API')
 api.add_middleware(
     CORSMiddleware,

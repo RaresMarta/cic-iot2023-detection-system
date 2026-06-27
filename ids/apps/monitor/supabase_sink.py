@@ -37,8 +37,8 @@ class SupabaseSink:
     unit-testable; ``run()`` wires them to the broker as a long-lived background consumer.
     """
 
-    _FLUSH_S = 0.25            # how often buffered flows are broadcast (live-feed latency)
-    _BATCH_CAP = 500           # max flows buffered between flushes (memory guard)
+    _FLUSH_S = 0.25
+    _BATCH_CAP = 500
 
     def __init__(self, url: str, key: str, monitor_key: str, monitor_name: str,
                  broker: Broker | None = None, *, owner_id: str = '', public_ip: str = '',
@@ -62,15 +62,12 @@ class SupabaseSink:
             'Authorization': f'Bearer {key}',
             'Content-Type': 'application/json',
         }
-        # resolved DB uuid for this monitor (set by register_monitor); None until registered
         self.monitor_uuid: str | None = None
-        # live-feed throttle (token bucket) + buffer, both touched only from the event loop
         self._tokens = self.flow_rate
         self._last_refill = self._clock()
         self._flow_batch: list[dict] = []
         self._display_dropped = 0
 
-    # ── HTTP plumbing (injectable for tests) ──────────────────────────────────
     def _default_transport(self, method: str, url: str, headers: dict, body):
         data = body.encode('utf-8') if body is not None else None
         req = urllib.request.Request(url, data=data, method=method, headers=headers)
@@ -93,7 +90,7 @@ class SupabaseSink:
                 except (TypeError, ValueError):
                     return None
             return None
-        except Exception as e:                       # network/DNS/timeout — never propagate
+        except Exception as e:
             print(f'[supabase] {method} {url} failed: {e}', flush=True)
             return None
 
@@ -101,7 +98,6 @@ class SupabaseSink:
     def _now_iso() -> str:
         return datetime.now(timezone.utc).isoformat()
 
-    # ── monitor registration (picker discovery) ───────────────────────────────
     def register_monitor(self) -> str | None:
         """Upsert this worker's monitors row (by monitor_key) and capture its uuid."""
         url = f'{self.url}/rest/v1/monitors?on_conflict=monitor_key'
@@ -113,8 +109,6 @@ class SupabaseSink:
             'status': 'online',
             'last_seen_at': self._now_iso(),
         }
-        # only set owner on (re)register when known, so an upsert never clobbers an owner
-        # the dashboard may have claimed for an existing monitor row.
         if self.owner_id:
             row['owner_id'] = self.owner_id
         body = [row]
@@ -126,7 +120,6 @@ class SupabaseSink:
                   flush=True)
         return self.monitor_uuid
 
-    # ── sync handlers (directly unit-testable) ────────────────────────────────
     def handle_event(self, evt: dict) -> None:
         try:
             t = evt.get('type')
@@ -134,8 +127,7 @@ class SupabaseSink:
                 self._on_alert(evt)
             elif t == 'recovered':
                 self._on_recovered(evt)
-            # 'flow' events are broadcast (not persisted) on the live path, not here.
-        except Exception as e:                       # never let one event kill the sink
+        except Exception as e:
             print(f'[supabase] handle_event error: {e}', flush=True)
 
     def _on_alert(self, evt: dict) -> None:
@@ -157,9 +149,6 @@ class SupabaseSink:
         if not self.monitor_uuid or not ip:
             return
         ended = evt.get('ts', self._clock())
-        # close the active incident(s) for this source; duration_s is a generated column.
-        # The detector keeps at most one active episode per attacker, so this matches the
-        # SQLite sink's "most recent active" semantics in practice.
         q = (f'{self.url}/rest/v1/incidents'
              f'?monitor_id=eq.{self.monitor_uuid}'
              f'&attacker_ip=eq.{urllib.parse.quote(str(ip))}'
@@ -179,11 +168,9 @@ class SupabaseSink:
             'by_family': stats.get('by_family'),
         }]
         self._send('POST', f'{self.url}/rest/v1/stats_snapshots', body)
-        # heartbeat: keep the picker's "online"/last_seen fresh
         self._send('PATCH', f'{self.url}/rest/v1/monitors?id=eq.{self.monitor_uuid}',
                    {'last_seen_at': self._now_iso(), 'status': 'online'})
 
-    # ── live flow feed: token-bucket throttle + batched broadcast ──────────────
     def _take_token(self) -> bool:
         """Return True if a flow may be broadcast now (rate-limited to flow_rate/sec)."""
         if self.flow_rate <= 0:
@@ -204,7 +191,6 @@ class SupabaseSink:
         msgs = [{'topic': topic, 'event': 'flow', 'payload': f} for f in batch]
         self._send('POST', f'{self.url}/realtime/v1/api/broadcast', {'messages': msgs})
 
-    # ── long-lived broker consumer ────────────────────────────────────────────
     async def run(self, detector) -> None:
         """Register, then drain broker events: throttle+broadcast flows on a fast cadence,
         persist incidents immediately, snapshot stats every snapshot_s. Cancelled cleanly."""
@@ -231,7 +217,7 @@ class SupabaseSink:
                 now = self._clock()
                 if self._flow_batch and now - last_flush >= self._FLUSH_S:
                     last_flush = now
-                    batch, self._flow_batch = self._flow_batch, []   # swap with no await
+                    batch, self._flow_batch = self._flow_batch, []
                     await loop.run_in_executor(None, self._broadcast_flows, batch)
                 if now - last_snap >= self.snapshot_s:
                     last_snap = now

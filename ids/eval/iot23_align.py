@@ -44,9 +44,6 @@ def _ip(b: bytes) -> str:
     return socket.inet_ntop(socket.AF_INET if len(b) == 4 else socket.AF_INET6, b)
 
 
-# ---------------------------------------------------------------------------
-# Extraction with per-window identity (mirrors extractor.extract_features order)
-# ---------------------------------------------------------------------------
 def extract_windows(pcap_path: str | Path, window: int = 10, include_partial: bool = True):
     """Return (feat_rows, meta_rows) in the exact order extract_features emits
     windows. feat_rows: list of 25-feature dicts. meta_rows: list of
@@ -82,9 +79,6 @@ def extract_windows(pcap_path: str | Path, window: int = 10, include_partial: bo
     return feat_rows, meta_rows
 
 
-# ---------------------------------------------------------------------------
-# Zeek conn.log.labeled parsing
-# ---------------------------------------------------------------------------
 def parse_conn_log_labeled(path: str | Path) -> dict:
     """Parse a Zeek conn.log.labeled into dict[frozenset{orig_h,resp_h}] ->
     sorted list of (t0, t1, is_malicious). Labels are read robustly: a row is
@@ -124,9 +118,6 @@ def parse_conn_log_labeled(path: str | Path) -> dict:
     return by_pair
 
 
-# ---------------------------------------------------------------------------
-# Window labelling
-# ---------------------------------------------------------------------------
 def label_windows(meta_rows: list, by_pair: dict):
     """Assign each window a binary label. Returns (labels, keep_mask, stats)."""
     labels: list = []
@@ -153,9 +144,6 @@ def label_windows(meta_rows: list, by_pair: dict):
     return labels, keep, stats
 
 
-# ---------------------------------------------------------------------------
-# Runner
-# ---------------------------------------------------------------------------
 def run(pcap: str | Path, labels_path: str | Path, model: str = 'rf', window: int = 10) -> dict:
     cols = model_feature_columns()
 

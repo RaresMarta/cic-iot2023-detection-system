@@ -27,7 +27,7 @@ def metrics5(y_true, y_pred, labels=None) -> dict:
 
 
 def report_and_confusion(y_true, y_pred, class_names: list) -> tuple[str, np.ndarray]:
-    lbls = list(range(len(class_names)))  # all classes, even if absent from this partition
+    lbls = list(range(len(class_names)))
     rep = cast(str, classification_report(y_true, y_pred, labels=lbls, target_names=class_names, zero_division=0, digits=4, output_dict=False))
     cm = confusion_matrix(y_true, y_pred, labels=lbls)
 

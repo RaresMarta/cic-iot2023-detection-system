@@ -155,13 +155,12 @@ def train_model(model: nn.Module, train_loader, val_loader,
                 print(f'  Early stop @ epoch {epoch+1}')
                 break
 
-        # Optuna pruning — kill unpromising trials early
         if trial is not None:
             trial.report(val_loss, epoch)
             if trial.should_prune():
                 raise __import__('optuna').exceptions.TrialPruned()
 
-    if best_state is not None:  # set on the first epoch; guards the type checker
+    if best_state is not None:
         model.load_state_dict(best_state)
 
     return model, history
@@ -179,7 +178,7 @@ def evaluate(model: nn.Module, test_loader, class_names: list,
             labels.append(yb.numpy())
     y_pred = np.concatenate(preds)
     y_true = np.concatenate(labels)
-    lbls = list(range(len(class_names)))  # all classes, even if absent from this partition
+    lbls = list(range(len(class_names)))
 
     return {
         'accuracy': accuracy_score(y_true, y_pred),

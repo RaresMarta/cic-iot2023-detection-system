@@ -21,7 +21,6 @@ RESULTS_SUMMARY = Path('_results_summary.json')
 PAPER_NUMBERS = Path('_paper_numbers.json')
 
 
-# ── Path helpers (single source of artifact names) ──────────────────────────
 
 def preprocessor_path(split: str, models_dir=MODELS_DIR) -> Path:
     return models_dir / f'preprocessor_{split}.joblib'
@@ -60,7 +59,6 @@ def perm_importance_path(models_dir=MODELS_DIR) -> Path:
     return models_dir / 'perm_imp_global_test.joblib'
 
 
-# ── Save / load ──────────────────────────────────────────────────────────────
 
 def save_serving_artifacts(split: str, preprocessor, feat_cols, models_dir=MODELS_DIR):
     joblib.dump(preprocessor, preprocessor_path(split, models_dir))
@@ -115,7 +113,6 @@ def load_mlp(split: str, mode: str, n_features: int, models_dir=MODELS_DIR):
     return model, le
 
 
-# ── Results cache and paper numbers ──────────────────────────────────────────
 
 def save_results(results_all: dict, calibration: dict):
     """Persist the full metrics cache plus a JSON summary (no arrays)."""

@@ -47,14 +47,12 @@ def _write_pcap(path: Path, frames: list[tuple[float, bytes]]):
 
 
 def _synth_syn_flood(n=100, t0=1000.0) -> list[tuple[float, bytes]]:
-    # one attacker -> one victim:80, rapid SYNs (fills a single 100-packet window)
     return [(t0 + i * 1e-4,
              _frame('185.10.0.9', '10.0.0.5', 40000 + i, 80, flags=dpkt.tcp.TH_SYN, ttl=64))
             for i in range(n)]
 
 
 def _synth_benign(n=20, t0=2000.0) -> list[tuple[float, bytes]]:
-    # client <-> server:443 exchange, ACK+PSH, realistic sizes/timing
     frames = []
     for i in range(n):
         if i % 2 == 0:
