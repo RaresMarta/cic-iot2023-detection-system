@@ -1,8 +1,7 @@
 """Supabase backplane sink — a broker subscriber that pushes the detector's output to
 Supabase so a remote (Vercel) dashboard can consume it without reaching this worker.
 
-It is the cloud sibling of ``SqliteSink`` (``store.py``): a second, independent broker
-consumer that never touches the detection path. Three jobs:
+A broker consumer that never touches the detection path. Three jobs:
 
   * register — on startup, upsert this worker's row in the ``monitors`` table so the
     dashboard picker discovers it (multi-tenant = one worker per environment, each with a

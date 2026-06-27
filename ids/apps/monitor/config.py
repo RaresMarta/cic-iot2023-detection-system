@@ -72,20 +72,6 @@ SOURCE = _env_str('IDS_SOURCE', 'replay')
 PCAP_PATH = _env_str('IDS_PCAP', '')
 PCAP_REALTIME = os.environ.get('IDS_PCAP_REALTIME', '0') == '1'
 
-# Event store: persist incidents + periodic stats snapshots to SQLite. Opt-in and
-# default-off so the detector is unchanged unless explicitly enabled. The DB lives
-# under the gitignored data/ dir by default. (MODELS_DIR.parent == PROJECT_ROOT.)
-DB_ENABLED = _env_str('IDS_DB_ENABLED', 'false').lower() == 'true'
-DB_PATH = _env_str('IDS_DB_PATH', str(MODELS_DIR.parent / 'data' / 'events.db'))
-DB_SNAPSHOT_S = _env_float('IDS_DB_SNAPSHOT_S', 15.0)
-
-# ntfy push notifications: alert the admin's phone on each attack episode. Opt-in and
-# default-off; never on the detection path (see notifier.py). Set IDS_NTFY_URL to your
-# topic, e.g. https://ntfy.sh/<your-random-topic>.
-NTFY_ENABLED = _env_str('IDS_NTFY_ENABLED', 'false').lower() == 'true'
-NTFY_URL = _env_str('IDS_NTFY_URL', '')
-NTFY_ON_RECOVER = _env_str('IDS_NTFY_ON_RECOVER', 'true').lower() == 'true'
-
 # Supabase backplane: a broker consumer that registers this worker as a "monitor",
 # broadcasts live flows over Supabase Realtime (ephemeral, never stored), and persists
 # incidents + periodic snapshots to Postgres. Opt-in and default-off; never on the
@@ -107,5 +93,5 @@ MONITOR_OWNER = _env_str('IDS_MONITOR_OWNER', '')
 # Max flows/sec broadcast to the dashboard feed. The feed is a sample for the eye; the
 # aggregate counters remain truthful. Excess flows are dropped from the display only.
 SUPABASE_FLOW_RATE = _env_float('IDS_SUPABASE_FLOW_RATE', 25.0)
-# Snapshot cadence reuses the event-store interval so both sinks agree.
-SUPABASE_SNAPSHOT_S = _env_float('IDS_SUPABASE_SNAPSHOT_S', DB_SNAPSHOT_S)
+# How often to persist a stats snapshot (seconds).
+SUPABASE_SNAPSHOT_S = _env_float('IDS_SUPABASE_SNAPSHOT_S', 15.0)

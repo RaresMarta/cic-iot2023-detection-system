@@ -2,7 +2,7 @@
 
 Exercises the sync handlers directly with an injected transport that records the HTTP
 calls the sink would make. The async run() loop just wires these to the broker, so testing
-the handlers is fast and deterministic. Mirrors tests/test_event_store.py.
+the handlers is fast and deterministic.
 """
 from __future__ import annotations
 
