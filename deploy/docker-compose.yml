@@ -26,7 +26,6 @@ services:
       dockerfile: deploy/mock_site.Dockerfile
     environment:
       SITE_NAME: "Aperture Cloud"
-      DETECTOR_URL: "${DETECTOR_URL:-http://localhost:7870}"   # browser-reachable detector
     networks:
       idsnet:
         ipv4_address: 172.30.0.10
