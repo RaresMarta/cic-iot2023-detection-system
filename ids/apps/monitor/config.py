@@ -51,6 +51,7 @@ QUEUE_MAXSIZE = _env_int('IDS_QUEUE_MAXSIZE', 2000)
 
 PROTECTED_IPS = _env_set('IDS_PROTECTED_IPS', {'172.30.0.10'})
 RECOVER_AFTER_S = _env_float('IDS_RECOVER_AFTER_S', 5.0)
+SAFE_IPS = _env_set('IDS_SAFE_IPS', set())
 
 SOURCE = _env_str('IDS_SOURCE', 'replay')
 PCAP_PATH = _env_str('IDS_PCAP', '')

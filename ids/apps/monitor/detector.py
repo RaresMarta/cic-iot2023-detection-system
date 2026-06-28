@@ -22,6 +22,7 @@ import polars as pl
 import torch
 
 
+from ids.core.timing import Timer
 from . import config
 from .events import Broker
 from .producers import WindowProducer
@@ -42,12 +43,11 @@ def attacker_ip(ip_a: str, ip_b: str, protected: set[str]) -> str | None:
 
 class Detector:
     def __init__(self, producer: WindowProducer, gate_predictor, family_predictor,
-                 broker: Broker, explainer=None):
+                 broker: Broker):
         self.producer = producer
         self.gate_predictor = gate_predictor
         self.family_predictor = family_predictor
         self.broker = broker
-        self.explainer = explainer
         self._q: queue.Queue = queue.Queue(maxsize=config.QUEUE_MAXSIZE)
         self._stop = threading.Event()
         self._capture_thread: threading.Thread | None = None
@@ -84,6 +84,7 @@ class Detector:
             self._q.put(None)
 
     def _enqueue(self, wr: WindowResult) -> None:
+        wr._enqueued_at = time.perf_counter()   # for queue-wait latency in _handle
         try:
             self._q.put_nowait(wr)
         except queue.Full:
@@ -103,67 +104,101 @@ class Detector:
             wr = await loop.run_in_executor(None, self._q.get)
             if wr is None:
                 break
+            dequeued_at = time.perf_counter()
             try:
-                await self._handle(wr, loop)
+                await self._handle(wr, dequeued_at)
             except Exception as e:
                 print(f'[detector] handle error: {e}', flush=True)
 
-    async def _handle(self, wr: WindowResult, loop) -> None:
+    async def _handle(self, wr: WindowResult, dequeued_at: float) -> None:
+        timer = self._start_timer(wr, dequeued_at)
+        verdict = self._classify(wr, timer)
+        self._record(verdict)
+        self._publish_flow(wr, verdict, timer, dequeued_at)
+        self._track_episode(wr, verdict)
+
+    def _start_timer(self, wr: WindowResult, dequeued_at: float) -> Timer:
+        timer = Timer()
+        enq = getattr(wr, '_enqueued_at', None)
+        if enq is not None:
+            timer.record('queue_wait_ms', (dequeued_at - enq) * 1000.0)
+        return timer
+
+    def _is_safelisted(self, wr: WindowResult) -> bool:
+        return bool(config.SAFE_IPS) and (
+            wr.ip_a in config.SAFE_IPS or wr.ip_b in config.SAFE_IPS)
+
+    def _classify(self, wr: WindowResult, timer: Timer) -> dict:
         df = pl.DataFrame([wr.features]).select(self.family_predictor.x_columns)
-        gate = self.gate_predictor.predict(df)
-        gate_label = str(gate['labels'][0])
-        gate_conf = float(gate['confidences'][0])
+        safelisted = self._is_safelisted(wr)
+        if safelisted:
+            gate_label, gate_conf = 'Benign', 1.0
+        else:
+            gate = self.gate_predictor.predict(df, timer=timer)
+            gate_label, gate_conf = str(gate['labels'][0]), float(gate['confidences'][0])
         malicious = gate_label != 'Benign'
 
         if malicious:
-            fam = self.family_predictor.predict(df)
-            family = str(fam['labels'][0])
-            fam_conf = float(fam['confidences'][0])
+            fam = self.family_predictor.predict(df, timer=timer)
+            family, fam_conf = str(fam['labels'][0]), float(fam['confidences'][0])
             probs = {n: float(p) for n, p in zip(fam['class_names'], fam['probabilities'][0])}
         else:
-            family = 'Benign'
-            fam_conf = gate_conf
-            probs = {'Benign': 1.0, 'DDoS': 0.0, 'DoS': 0.0, 'Mirai': 0.0,
-                     'Recon': 0.0, 'Spoofing': 0.0, 'Web': 0.0, 'BruteForce': 0.0}
+            family, fam_conf = 'Benign', gate_conf
+            probs = self._benign_probs()
 
-        atk = attacker_ip(wr.ip_a, wr.ip_b, config.PROTECTED_IPS)
-        protected = wr.ip_b if atk == wr.ip_a else wr.ip_a
+        attacker = attacker_ip(wr.ip_a, wr.ip_b, config.PROTECTED_IPS)
+        protected = wr.ip_b if attacker == wr.ip_a else wr.ip_a
+        return {'safelisted': safelisted, 'malicious': malicious, 'family': family,
+                'gate_conf': gate_conf, 'fam_conf': fam_conf, 'probs': probs,
+                'attacker': attacker, 'protected': protected}
 
+    @staticmethod
+    def _benign_probs() -> dict:
+        return {'Benign': 1.0, 'DDoS': 0.0, 'DoS': 0.0, 'Mirai': 0.0,
+                'Recon': 0.0, 'Spoofing': 0.0, 'Web': 0.0, 'BruteForce': 0.0}
+
+    def _record(self, verdict: dict) -> None:
         self.stats['flows_total'] += 1
-        self.stats['by_family'][family] += 1
-        if malicious:
+        self.stats['by_family'][verdict['family']] += 1
+        if verdict['malicious']:
             self.stats['malicious'] += 1
 
+    def _publish_flow(self, wr: WindowResult, verdict: dict, timer: Timer,
+                      dequeued_at: float) -> None:
         self._flow_id += 1
-        now = time.time()
+        spans = timer.as_dict()
+        spans['detect_ms'] = round((time.perf_counter() - dequeued_at) * 1000.0, 3)
         self.broker.publish({
             'type': 'flow',
             'flow_id': self._flow_id,
-            'ts': now,
-            'src': atk or wr.ip_a,
-            'dst': protected,
-            'family': family,
-            'gate': 'block' if malicious else 'allow',
-            'gate_confidence': gate_conf,
-            'confidence': fam_conf,
-            'probabilities': probs,
-            'top_features': self._explain(wr.features, probs),
+            'ts': time.time(),
+            'src': verdict['attacker'] or wr.ip_a,
+            'dst': verdict['protected'],
+            'family': verdict['family'],
+            'gate': 'block' if verdict['malicious'] else 'allow',
+            'gate_confidence': verdict['gate_conf'],
+            'confidence': verdict['fam_conf'],
+            'probabilities': verdict['probs'],
+            'top_features': [],
             'n_packets': wr.n_packets,
+            'safelisted': verdict['safelisted'],
+            'timing': spans,
         })
 
-        if malicious and atk is not None:
-            state = self._active.get(atk)
-            if state is None:
-                self._active[atk] = {'last_malicious': now, 'family': family}
-                reasons = await loop.run_in_executor(None, self._shap_gate, df, wr.features)
-                if not reasons:
-                    reasons = self._explain(wr.features, probs)
-                self.broker.publish({'type': 'alert', 'ts': now, 'attacker_ip': atk,
-                                     'family': family, 'confidence': gate_conf,
-                                     'top_features': reasons})
-            else:
-                state['last_malicious'] = now
-                state['family'] = family
+    def _track_episode(self, wr: WindowResult, verdict: dict) -> None:
+        attacker = verdict['attacker']
+        if not verdict['malicious'] or attacker is None:
+            return
+        now = time.time()
+        state = self._active.get(attacker)
+        if state is None:
+            self._active[attacker] = {'last_malicious': now, 'family': verdict['family']}
+            self.broker.publish({'type': 'alert', 'ts': now, 'attacker_ip': attacker,
+                                 'family': verdict['family'],
+                                 'confidence': verdict['gate_conf'], 'top_features': []})
+        else:
+            state['last_malicious'] = now
+            state['family'] = verdict['family']
 
     async def _lifecycle_loop(self) -> None:
         try:
@@ -176,32 +211,6 @@ class Detector:
                     self.broker.publish({'type': 'recovered', 'ts': now, 'attacker_ip': atk})
         except asyncio.CancelledError:
             pass
-
-    def _shap_gate(self, df: pl.DataFrame, features: dict, top_k: int = 6) -> list[dict] | None:
-        """Real SHAP for why the 2-class gate flagged this source. Runs once per
-        attack episode (in the consumer's executor); None on any failure."""
-        if self.explainer is None:
-            return None
-        try:
-            classes = list(self.gate_predictor.encoder.classes_)
-            attack_idx = classes.index('Attack') if 'Attack' in classes else 0
-            x_scaled = self.gate_predictor.preprocess(df)[0]
-            reasons = self.explainer.explain(x_scaled, features, attack_idx, top_k=top_k)
-            return [{'feature': r['feature'], 'contribution': r['shap'],
-                     'direction': r['direction']} for r in reasons]
-        except Exception as e:
-            print(f'[detector] gate SHAP skipped: {e}', flush=True)
-            return None
-
-    def _explain(self, features: dict, probs: dict, top_k: int = 5) -> list[dict]:
-        try:
-            scaled = self.family_predictor.preprocess(
-                pl.DataFrame([features]).select(self.family_predictor.x_columns))[0]
-            order = sorted(range(len(scaled)), key=lambda i: -abs(float(scaled[i])))[:top_k]
-            return [{'feature': self.family_predictor.x_columns[i],
-                     'contribution': round(float(scaled[i]), 4)} for i in order]
-        except Exception:
-            return []
 
     def snapshot_stats(self) -> dict:
         return {

@@ -16,6 +16,7 @@ import torch
 
 from ids.core.config import X_COLUMNS as CONFIG_X_COLUMNS, FLAG_COLUMNS as CONFIG_FLAG_COLUMNS
 from ids.core.models import IDSModel
+from ids.core.timing import NULL_TIMER
 
 
 class _BasePredictor:
@@ -97,11 +98,13 @@ class MLPClassifier(_BasePredictor):
             except Exception:
                 self.temperature = 1.0
 
-    def predict(self, df: pl.DataFrame) -> dict:
-        X = self.preprocess(df)
-        with torch.no_grad():
-            logits = self.model(torch.from_numpy(X).to(self.device))
-            probs  = torch.softmax(logits / self.temperature, dim=1).cpu().numpy()
+    def predict(self, df: pl.DataFrame, timer=NULL_TIMER) -> dict:
+        with timer.span('preprocess_ms'):
+            X = self.preprocess(df)
+        with timer.span('inference_ms'):
+            with torch.no_grad():
+                logits = self.model(torch.from_numpy(X).to(self.device))
+                probs  = torch.softmax(logits / self.temperature, dim=1).cpu().numpy()
         return self._result(probs)
 
 
@@ -113,9 +116,11 @@ class RFClassifier(_BasePredictor):
         self.kind = kind
         self.model = joblib.load(self.models_dir / f'ids_{kind}_{split}_{mode}class.joblib')
 
-    def predict(self, df: pl.DataFrame) -> dict:
-        X = self.preprocess(df)
-        raw = np.asarray(self.model.predict_proba(X), dtype=np.float32)
+    def predict(self, df: pl.DataFrame, timer=NULL_TIMER) -> dict:
+        with timer.span('preprocess_ms'):
+            X = self.preprocess(df)
+        with timer.span('inference_ms'):
+            raw = np.asarray(self.model.predict_proba(X), dtype=np.float32)
 
         K = len(self.encoder.classes_)
         if raw.shape[1] == K:

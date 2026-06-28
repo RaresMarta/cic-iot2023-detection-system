@@ -47,6 +47,15 @@ services:
       - website                # ensures idsnet (and the ids-br0 bridge) exists first
     restart: unless-stopped
 
+  analyzer:                      # stateless batch backend: POST /api/classify on :7860
+    build:
+      context: ..
+      dockerfile: deploy/analyzer.Dockerfile
+    networks: [idsnet]           # plain bridge; no raw capture needed (unlike detector)
+    ports:
+      - "7860:7860"              # the REST API the Vercel frontend calls
+    restart: unless-stopped
+
   dashboard:                     # the SOC console (React app — built per the frontend plan)
     profiles: ["full"]           # opt-in; needs ids-frontend/Dockerfile from the frontend workstream
     build:

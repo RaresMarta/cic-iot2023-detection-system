@@ -51,16 +51,7 @@ async def lifespan(app: FastAPI):
     producer, inject_queue = producers.from_config()
     broker = Broker()
 
-    explainer = None
-    try:
-        from ids.runtime.explain import FlowExplainer
-        from ids.data.sampler import FlowSampler
-        explainer = FlowExplainer(gate_predictor, FlowSampler())
-        print('[service] live SHAP enabled (gate explainer)', flush=True)
-    except Exception as e:
-        print(f'[service] live SHAP unavailable, alerts use saliency proxy: {e}', flush=True)
-
-    detector = Detector(producer, gate_predictor, family_predictor, broker, explainer)
+    detector = Detector(producer, gate_predictor, family_predictor, broker)
     app.state.detector = detector
     app.state.broker = broker
     app.state.inject_queue = inject_queue

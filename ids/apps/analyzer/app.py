@@ -18,6 +18,7 @@ from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
 from ids.core.config import MODELS_DIR
+from ids.core.timing import Timer
 from ids.runtime.predictor import MLPClassifier, RFClassifier
 
 
@@ -141,32 +142,46 @@ async def classify_endpoint(
         return {'error': f'Model {predictor_key!r} not found. Available: {available}'}
 
     predictor = PREDICTORS[predictor_key]
-    t0 = time.time()
-    contents = await file.read()
+    timer = Timer()
+    t0 = time.perf_counter()
+
+    with timer.span('read_ms'):
+        contents = await file.read()
 
     fname = file.filename or 'upload.csv'
     is_pcap = fname.lower().endswith(('.pcap', '.pcapng', '.cap'))
-    with tempfile.TemporaryDirectory() as tmp:
-        path = Path(tmp) / fname
-        path.write_bytes(contents)
-        if is_pcap:
-            from ids.runtime.extractor import extract_features
-            df = extract_features(str(path))
-        else:
-            df = pl.read_csv(str(path))
+    with timer.span('extract_ms'):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / fname
+            path.write_bytes(contents)
+            if is_pcap:
+                from ids.runtime.extractor import extract_features
+                df = extract_features(str(path))
+            else:
+                df = pl.read_csv(str(path))
 
     if df.height == 0:
         return {'error': 'No flows could be extracted from the upload. For packet '
                          'captures, ensure the file contains IPv4 TCP/UDP traffic.'}
 
-    pred = predictor.predict(df)
-    result = _aggregate(pred)
+    # predict() records preprocess_ms + inference_ms (pure model call) into the same timer.
+    pred = predictor.predict(df, timer=timer)
+    with timer.span('aggregate_ms'):
+        result = _aggregate(pred)
 
-    top_features = _explain_dominant(predictor, predictor_key, df, pred, result['top_label'])
+    with timer.span('explain_ms'):
+        top_features = _explain_dominant(predictor, predictor_key, df, pred, result['top_label'])
     if top_features is not None:
         result['top_features'] = top_features
 
-    result['processing_time_ms'] = round((time.time() - t0) * 1000)
+    total_ms = (time.perf_counter() - t0) * 1000
+    spans = timer.as_dict()
+    # "overhead" = everything that is not the pure model call, so the demo can show
+    # how little of the wall time the inference itself costs.
+    spans['inference_per_flow_ms'] = round(spans.get('inference_ms', 0.0) / max(df.height, 1), 4)
+    spans['total_server_ms'] = round(total_ms, 3)
+    result['timing'] = spans
+    result['processing_time_ms'] = round(total_ms)
     result['model_type']  = model_type
     result['mode']        = mode
     result['split']       = split

@@ -28,5 +28,5 @@ and — for the 8-class MLP — SHAP `top_features`.
 
 ## Models shipped
 
-`mlp/random/2`, `mlp/random/8`, `rf/random/2`. The 1.3 GB `rf/random/8` forest is left
-out to fit the free CPU tier; requesting it returns a clean "model not found".
+`mlp/random/2`, `mlp/random/8`, `rf/random/2`, `rf/random/8`. The 1.3 GB `rf/random/8`
+forest loads in ~2 GB RAM, well within the 16 GB free tier.
