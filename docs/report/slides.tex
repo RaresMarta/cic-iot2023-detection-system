@@ -25,46 +25,30 @@
 \subtitle{NEURAL IDS — a deep-learning NIDS on CIC-IoT-2023}
 \author{Rareș Marta}
 \institute{Faculty of Mathematics and Computer Science\\ Babeș-Bolyai University \\[0.4em]
-           {\small Coordinator: \textit{[name]}}}
+           {\small Coordinator: Alexandra-Ioana Albu}}
 \date{2026}
 
 \begin{document}
 
-% ---- 1. Title -----------------------------------------------------------
+% ===== 1. Title =========================================================
 \begin{frame}[plain]\titlepage\end{frame}
 
-% ---- 2. Motivation & purpose -------------------------------------------
-\begin{frame}{Motivation \& purpose}
-  \textbf{Why it matters}
-  \begin{itemize}
-    \item Billions of IoT devices, weak security — prime targets for DDoS, Mirai, scanning.
-    \item Defenders need to flag malicious traffic \emph{as it happens}, per flow.
-  \end{itemize}
-  \vspace{0.8em}
-  \textbf{Purpose}
-  \begin{itemize}
-    \item A real-time intrusion-detection system that classifies network flows as
-          \emph{benign} or \emph{attack} and surfaces alerts live.
-    \item Delivered as a working end-to-end system — not just an offline model.
+% ===== 2. Why IoT security matters ======================================
+\begin{frame}{Why this matters}
+  \vspace{0.6em}
+  \begin{itemize}\itemsep1.1em
+    \item Billions of IoT devices — cameras, plugs, sensors — shipped with
+          weak, rarely-patched security.
+    \item Each is an entry point for attackers: floods, scans, botnets like Mirai.
+    \item The defence: detect attacks live, per flow.
   \end{itemize}
 \end{frame}
 
-% ---- 3. Outline ---------------------------------------------------------
-\begin{frame}{Outline}
-  \begin{enumerate}
-    \item What an IDS is
-    \item Data \& model — CIC-IoT-2023
-    \item System architecture
-    \item Demo
-    \item Results \& limitations
-    \item Conclusions
-  \end{enumerate}
-\end{frame}
-
-% ---- 4. What an IDS is (diagram) ---------------------------------------
-\begin{frame}{What an IDS does — passive detect \& alert}
-  \vspace{1.2em}
+% ===== 3. What an IDS is (architecture fundamentals) ====================
+\begin{frame}{What an IDS does}
+  \vspace{1.4em}
   \centering
+  \vfill
   \begin{tikzpicture}[node distance=0.55cm]
     \node[box] (cap)   {Packet\\capture};
     \node[box, right=of cap]   (win)  {Flow\\windowing};
@@ -74,46 +58,76 @@
     \draw[ar] (cap)--(win); \draw[ar] (win)--(feat);
     \draw[ar] (feat)--(mdl); \draw[ar] (mdl)--(al);
   \end{tikzpicture}
-  \vspace{1.4em}
-  \begin{itemize}
-    \item Observes a copy of traffic — it \emph{detects and alerts}, it does not block.
-    \item Each 10-packet window between two hosts → 25 features → a calibrated verdict.
-  \end{itemize}
+  \vfill
 \end{frame}
 
-% ---- 5. Dataset ---------------------------------------------------------
-\begin{frame}{The dataset: CIC-IoT-2023}
+% ===== 4. Dataset =======================================================
+\begin{frame}{The data: CIC-IoT-2023}
   \centering
   {\large\textbf{Canadian Institute for Cybersecurity\\ University of New Brunswick \textnormal{(2023)}}}\par
   \vspace{1.2em}
-  \begin{itemize}
-    \item 46.7M labelled flows · 105 real IoT devices · smart-home testbed
-    \item 33 attacks across 7 families · 39-feature public CSV (packet/flow metadata)
-    \item \textbf{Caveat flagged:} per-class packet windows make count features a
-          near-label proxy — treated as leakage, not signal.
+  \begin{itemize}\itemsep1.0em
+    \item 46.7M flows · 105 real IoT devices · 33 attacks in 7 families.
+    \item 39 features — flow statistics, \emph{no payload}.
+    \item Count features leak the capture window — I treat them as leakage.
   \end{itemize}
 \end{frame}
 
-% ---- 6. Data processing -------------------------------------------------
-\figslide{Cleaning 46.7M rows — dedup before sampling}{ingest_waterfall.png}
+% ===== 5. Cleaning ======================================================
+\figslide{Step 1 — clean 46.7M rows: dedup \emph{before} sampling}{ingest_waterfall.png}
 
-% ---- 7. Separability ----------------------------------------------------
-\figslide{Feature separability — floods easy, web overlaps benign}{box_rate_by_family.png}
+% ===== 6a. Meet the families (define the 8 classes) =====================
+\begin{frame}{What we classify — 8 families}
+  \centering\renewcommand{\arraystretch}{1.45}
+  {\small
+  \begin{tabular}{ll}
+    \textbf{Benign}     & the normal smart-home traffic we want to leave alone\\ \hline
+    \textbf{DDoS}       & many devices flood a target at once\\
+    \textbf{DoS}        & one machine floods a target until it falls over\\
+    \textbf{Mirai}      & hacked IoT devices, taken over and remote-controlled\\
+    \textbf{Recon}      & an attacker quietly mapping what's reachable\\
+    \textbf{Spoofing}   & pretending to be someone else to redirect traffic\\
+    \textbf{Web}        & attacks hidden inside web requests (SQL injection, XSS)\\
+    \textbf{BruteForce} & guessing passwords over and over until one works\\
+  \end{tabular}}
+\end{frame}
 
-% ---- 8-10. Results ------------------------------------------------------
-\figslide{Binary gate — the primary task (test set)}{confusion_2class.png}
-\figslide{8-class: application-layer attacks collapse}{per_class_f1_8class.png}
-\figslide{Positioning — comparable results only}{macro_f1_comparison_8class.png}
+% ===== 6b. Separability (where the signal lives) ========================
+\figslide{Where the signal lives — floods separate, web overlaps benign}{box_separability_by_family.png}
 
-% ---- 11. Architecture (diagram) ----------------------------------------
-\begin{frame}{System architecture}
-  \vspace{0.6em}
+% ===== 7. Training pipeline (high-level walkthrough) ====================
+\begin{frame}{Training pipeline — end to end}
+  \vspace{1.2em}
+  \centering
+  \begin{tikzpicture}[node distance=0.4cm,
+                      every node/.append style={minimum width=1.7cm}]
+    \node[box] (ing)  {Ingest\\46.7M};
+    \node[box, right=of ing]  (ded) {Dedup\\$\to$21.6M};
+    \node[box, right=of ded]  (prn) {Prune\\39$\to$25};
+    \node[box, right=of prn]  (scl) {RobustScaler\\+ log1p};
+    \node[box, right=of scl]  (mdl) {MLP\\(+ RF)};
+    \node[box, right=of mdl]  (ev)  {Evaluate\\2- \& 8-class};
+    \draw[ar] (ing)--(ded); \draw[ar] (ded)--(prn); \draw[ar] (prn)--(scl);
+    \draw[ar] (scl)--(mdl); \draw[ar] (mdl)--(ev);
+  \end{tikzpicture}
+  \vspace{1.2em}
+  \begin{itemize}\footnotesize
+    \item Class-weighted loss for imbalance; tree baseline (Random Forest) on the same split.
+    \item One stratified random split — comparable to the literature, but optimistic.
+  \end{itemize}
+\end{frame}
+
+% ===== 8-9. Results =====================================================
+\figslide{Result — the binary gate (primary detect-\&-alert task)}{confusion_2class.png}
+\figslide{Result — 8-class families: application-layer attacks collapse}{per_class_f1_8class.png}
+
+% ===== 11. Monitor system architecture (as-built) =======================
+\begin{frame}{System architecture — as built}
+  \vspace{0.4em}
   \centering
   \begin{tikzpicture}[node distance=0.7cm and 0.9cm]
-    % offline row
     \node[off] (train) {Training\\pipeline};
     \node[off, right=of train] (art) {Model\\artifacts};
-    % online row
     \node[box, below=1.1cm of art] (det) {Live detector\\capture$\to$classify};
     \node[box, left=of det]  (traf) {Network\\traffic};
     \node[box, right=of det] (sup)  {Supabase\\Realtime + Postgres};
@@ -124,60 +138,51 @@
     \draw[ar] (det)--(sup);
     \draw[ar] (sup)--(dash);
   \end{tikzpicture}
-  \vspace{0.8em}
+  \vspace{0.6em}
   \begin{itemize}\footnotesize
     \item Offline training emits artifacts; the live detector loads them and serves verdicts.
     \item Flows stream ephemerally over Realtime; incidents \& stats persist in Postgres.
   \end{itemize}
 \end{frame}
 
-% ---- 12. Technologies ---------------------------------------------------
-\begin{frame}{Technologies}
+% ===== 12. Deployment choices ===========================================
+\begin{frame}{Deployment choices — where each piece runs}
   \centering\renewcommand{\arraystretch}{1.3}
-  \begin{tabular}{ll}
-    \textbf{Layer} & \textbf{Tooling}\\ \hline
-    Model            & PyTorch MLP · scikit-learn (RF, RobustScaler)\\
-    Data pipeline    & Polars · Apache Parquet\\
-    Flow extraction  & dpkt — custom CIC-window extractor\\
-    Detector service & FastAPI · Uvicorn\\
-    Backplane        & Supabase (Postgres + Realtime)\\
-    Dashboard        & React · Vite · Vercel\\
-    Live sensor      & DigitalOcean droplet (Docker)\\
+  \begin{tabular}{lll}
+    \textbf{Piece} & \textbf{Runs on} & \textbf{Why}\\ \hline
+    Detector + API   & FastAPI on DigitalOcean droplet & serves both MLP \& RF\\
+    Live sensor      & same droplet (Docker) & captures real traffic\\
+    Backplane        & Supabase (Postgres + Realtime) & push flows, no polling\\
+    Dashboard        & React · Vite · Vercel & static, edge-served, CI deploy\\
   \end{tabular}
+  \vspace{0.9em}
+  \begin{itemize}\footnotesize
+    \item Decoupled: training is offline; serving is a stateless API the UI calls over REST.
+  \end{itemize}
 \end{frame}
 
-% ---- 13. Demo -----------------------------------------------------------
-\begin{frame}{\textbf{Demo} — live monitoring}
+% ===== 13. Demo (live — no screenshot; switch to the app) ===============
+\begin{frame}[plain]
   \centering
-  \includegraphics[width=\linewidth,height=0.66\textheight,keepaspectratio]{app_dashboard_v2.png}\\[0.4em]
-  {\footnotesize Scrolling flow stream · click a flow for detail · live traffic-rate chart ·
-   trigger an attack and watch it flag.}
+  \vfill
+  {\Huge\textbf{Live demo}}\\[1.2em]
+  {\large trigger an attack $\to$ watch it flag, per flow}
+  \vfill
 \end{frame}
 
-% ---- 14. Testing --------------------------------------------------------
-\begin{frame}{Testing — acceptance}
-  End-to-end on captures whose correct labels are known in advance:
+% ===== 14. End-to-end validation ========================================
+\begin{frame}{End-to-end — known-label captures}
+  Run real captures whose correct labels we know in advance, end to end:
   \begin{itemize}
-    \item Benign browsing → \textbf{98\% Benign} (passes the 95\% bar)
+    \item Benign browsing → \textbf{98\% Benign}
     \item SYN flood → \textbf{100\% Attack}, mean confidence 99.6\%, family = DoS
     \item Port scan → family = \textbf{Recon}
   \end{itemize}
   \vspace{0.6em}
-  In-distribution the binary gate is reliable: \textbf{MLP false-alarm rate 1.77\%}.
+  In-distribution the binary gate is reliable: \textbf{false-alarm rate 1.77\%}.
 \end{frame}
 
-% ---- 15. Limitation -----------------------------------------------------
-\begin{frame}{Limitation — out-of-distribution traffic}
-  \centering
-  \includegraphics[width=\linewidth,height=0.52\textheight,keepaspectratio]{gate_fpr_by_model.png}\\[0.4em]
-  \begin{itemize}\footnotesize
-    \item In-distribution the gate over-flags only 1.77\% of benign flows.
-    \item On \emph{real} internet traffic it over-flags heavily — the model's ``Benign''
-          was learned from smart-home IoT devices, a different distribution (domain shift).
-  \end{itemize}
-\end{frame}
-
-% ---- 16. Conclusions ----------------------------------------------------
+% ===== 15. Conclusions ==================================================
 \begin{frame}{Conclusions \& future work}
   \textbf{Delivered}
   \begin{itemize}\footnotesize
