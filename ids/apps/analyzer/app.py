@@ -16,8 +16,9 @@ import polars as pl
 import uvicorn
 from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
-from ids.core.config import MODELS_DIR
+from ids.core.config import MODELS_DIR, X_COLUMNS_SELECTED
 from ids.core.timing import Timer
 from ids.runtime.predictor import MLPClassifier, RFClassifier
 
@@ -189,6 +190,50 @@ async def classify_endpoint(
     result['input_type']  = 'pcap' if is_pcap else 'csv'
     result['success']     = True
 
+    return result
+
+
+class FlowRequest(BaseModel):
+    features: dict[str, float]
+    model_type: str = 'mlp'
+    mode: str = '2'
+    split: str = 'random'
+
+
+@api.post('/api/classify-flow')
+def classify_flow_endpoint(req: FlowRequest):
+    predictor_key = f'{req.model_type}/{req.split}/{req.mode}'
+    if predictor_key not in PREDICTORS:
+        return {'error': f'Model {predictor_key!r} not found. Available: {list(PREDICTORS.keys())}'}
+
+    missing = [c for c in X_COLUMNS_SELECTED if c not in req.features]
+    if missing:
+        return {'error': f'Missing required features: {missing}'}
+
+    predictor = PREDICTORS[predictor_key]
+    timer = Timer()
+    t0 = time.perf_counter()
+
+    df = pl.DataFrame([{c: float(req.features[c]) for c in X_COLUMNS_SELECTED}])
+    pred = predictor.predict(df, timer=timer)
+    with timer.span('aggregate_ms'):
+        result = _aggregate(pred)
+
+    with timer.span('explain_ms'):
+        top_features = _explain_dominant(predictor, predictor_key, df, pred, result['top_label'])
+    if top_features is not None:
+        result['top_features'] = top_features
+
+    total_ms = (time.perf_counter() - t0) * 1000
+    spans = timer.as_dict()
+    spans['total_server_ms'] = round(total_ms, 3)
+    result['timing'] = spans
+    result['processing_time_ms'] = round(total_ms)
+    result['model_type'] = req.model_type
+    result['mode'] = req.mode
+    result['split'] = req.split
+    result['input_type'] = 'manual'
+    result['success'] = True
     return result
 
 
